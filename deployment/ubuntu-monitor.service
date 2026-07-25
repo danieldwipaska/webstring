@@ -1,0 +1,16 @@
+[Unit]
+Description=Ubuntu Realtime Server Sentinel Service
+After=network.target mongodb.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ubuntu-monitor
+ExecStart=/usr/bin/node /opt/ubuntu-monitor/server/index.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+Environment=PORT=5000
+
+[Install]
+WantedBy=multi-user.target
