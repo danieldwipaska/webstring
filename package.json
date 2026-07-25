@@ -29,6 +29,14 @@
     "vite": "^5.1.4"
   },
   "keywords": ["ubuntu", "server-monitoring", "mongodb-atlas", "realtime", "telemetry", "systeminformation"],
-  "author": "",
-  "license": "MIT"
+  "author": "Daniel <danielkamasi@outlook.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danieldwipaska/webstring.git"
+  },
+  "bugs": {
+    "url": "https://github.com/danieldwipaska/webstring/issues"
+  },
+  "homepage": "https://github.com/danieldwipaska/webstring#readme"
 }

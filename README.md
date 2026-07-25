@@ -1,5 +1,9 @@
 # 🛡️ Ubuntu Realtime Server Sentinel
 
+[![Build Status](https://github.com/danieldwipaska/webstring/actions/workflows/ci.yml/badge.svg)](https://github.com/danieldwipaska/webstring/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
+
 A high-performance, lightweight, open-source real-time server monitoring and threat detection web application built for Ubuntu Linux servers using Node.js, Express, Socket.io, Vite, systeminformation, and MongoDB Atlas.
 
 ---
@@ -150,5 +154,16 @@ To manually purge historical data at any time:
 
 ---
 
+## 🤝 Contributing, Code of Conduct & Security
+
+We welcome all contributions to **Ubuntu Realtime Server Sentinel**!
+- Please read our [Contributing Guidelines](CONTRIBUTING.md) to get started with setup and Pull Requests.
+- Review our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+- Check our [Security Policy](SECURITY.md) for reporting security vulnerabilities responsibly.
+
+---
+
 ## 📄 License
-MIT License - Open Source Software
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
