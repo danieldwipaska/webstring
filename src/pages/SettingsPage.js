@@ -7,7 +7,7 @@ export function renderSettingsPage() {
     <div class="container" style="max-width: 680px; padding-top: 2rem; padding-bottom: 3rem;">
       <div class="page-header" style="margin-bottom: 1.5rem;">
         <h1 class="page-title">Account Settings</h1>
-        <p class="page-subtitle">Kelola informasi akun administrator dan kredensial akses server monitor Anda.</p>
+        <p class="page-subtitle">Manage administrator account details and server telemetry monitor access credentials.</p>
       </div>
 
       <div id="settings-alert" style="display: none; padding: 0.8rem 1rem; margin-bottom: 1.5rem; border-radius: var(--radius-md); font-size: 0.9rem;"></div>
@@ -20,21 +20,21 @@ export function renderSettingsPage() {
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
               <circle cx="12" cy="7" r="4"></circle>
             </svg>
-            Profil Akun Administrator
+            Administrator Profile Overview
           </div>
-          <span class="severity-badge severity-low">Aktif</span>
+          <span class="severity-badge severity-low">Active</span>
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.9rem;">
           <div>
-            <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Username Saat Ini</div>
+            <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Current Username</div>
             <div class="mono" style="font-weight: 600;" id="display-current-username">${currentUser.username || '-'}</div>
           </div>
           <div>
-            <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Email Registered</div>
+            <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Registered Email</div>
             <div class="mono" style="font-weight: 600;">${currentUser.email || '-'}</div>
           </div>
           <div>
-            <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Peran (Role)</div>
+            <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Role</div>
             <div class="mono" style="font-weight: 600; text-transform: uppercase; color: var(--color-accent);">${currentUser.role || 'admin'}</div>
           </div>
         </div>
@@ -48,15 +48,15 @@ export function renderSettingsPage() {
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
             </svg>
-            Ubah Username
+            Change Username
           </div>
         </div>
         <form id="update-username-form">
           <div class="form-group">
-            <label class="form-label" for="new-username">Username Baru</label>
-            <input type="text" id="new-username" class="form-input" value="${currentUser.username || ''}" required placeholder="Masukkan username baru" />
+            <label class="form-label" for="new-username">New Username</label>
+            <input type="text" id="new-username" class="form-input" value="${currentUser.username || ''}" required placeholder="Enter new username" />
           </div>
-          <button type="submit" class="btn btn-primary" id="btn-save-username">Perbarui Username</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-username">Update Username</button>
         </form>
       </div>
 
@@ -68,23 +68,23 @@ export function renderSettingsPage() {
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
               <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
             </svg>
-            Ubah Password
+            Change Password
           </div>
         </div>
         <form id="update-password-form">
           <div class="form-group">
-            <label class="form-label" for="current-password">Password Saat Ini (Opsional / Konfirmasi)</label>
-            <input type="password" id="current-password" class="form-input" placeholder="Masukkan password saat ini" />
+            <label class="form-label" for="current-password">Current Password (Confirmation)</label>
+            <input type="password" id="current-password" class="form-input" placeholder="Enter current password" />
           </div>
           <div class="form-group">
-            <label class="form-label" for="new-password">Password Baru</label>
-            <input type="password" id="new-password" class="form-input" placeholder="Minimal 6 karakter" required minlength="6" />
+            <label class="form-label" for="new-password">New Password</label>
+            <input type="password" id="new-password" class="form-input" placeholder="At least 6 characters" required minlength="6" />
           </div>
           <div class="form-group">
-            <label class="form-label" for="confirm-password">Konfirmasi Password Baru</label>
-            <input type="password" id="confirm-password" class="form-input" placeholder="Ketik ulang password baru" required minlength="6" />
+            <label class="form-label" for="confirm-password">Confirm New Password</label>
+            <input type="password" id="confirm-password" class="form-input" placeholder="Re-type new password" required minlength="6" />
           </div>
-          <button type="submit" class="btn btn-primary" id="btn-save-password">Perbarui Password</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-password">Update Password</button>
         </form>
       </div>
     </div>
@@ -125,27 +125,27 @@ export function initSettingsPage(navigate) {
       const submitBtn = document.getElementById('btn-save-username');
 
       if (!newUsername) {
-        showAlert('Username tidak boleh kosong.', true);
+        showAlert('Username cannot be empty.', true);
         return;
       }
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Menyimpan...';
+      submitBtn.textContent = 'Saving...';
 
       try {
         const res = await updateAccountSettings({ username: newUsername });
         if (res.success) {
-          showAlert(res.message || 'Username berhasil diperbarui.');
+          showAlert(res.message || 'Username updated successfully.');
           const displayUser = document.getElementById('display-current-username');
           if (displayUser) displayUser.textContent = newUsername;
         } else {
-          throw new Error(res.message || 'Gagal memperbarui username.');
+          throw new Error(res.message || 'Failed to update username.');
         }
       } catch (err) {
-        showAlert(err.message || 'Gagal memperbarui username.', true);
+        showAlert(err.message || 'Failed to update username.', true);
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Perbarui Username';
+        submitBtn.textContent = 'Update Username';
       }
     };
   }
@@ -161,33 +161,33 @@ export function initSettingsPage(navigate) {
       const submitBtn = document.getElementById('btn-save-password');
 
       if (newPassword !== confirmPassword) {
-        showAlert('Konfirmasi password tidak cocok dengan password baru.', true);
+        showAlert('Password confirmation does not match new password.', true);
         return;
       }
 
       if (newPassword.length < 6) {
-        showAlert('Password baru minimal 6 karakter.', true);
+        showAlert('New password must be at least 6 characters.', true);
         return;
       }
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Menyimpan...';
+      submitBtn.textContent = 'Saving...';
 
       try {
         const res = await updateAccountSettings({ currentPassword, newPassword });
         if (res.success) {
-          showAlert(res.message || 'Password berhasil diperbarui.');
+          showAlert(res.message || 'Password updated successfully.');
           document.getElementById('current-password').value = '';
           document.getElementById('new-password').value = '';
           document.getElementById('confirm-password').value = '';
         } else {
-          throw new Error(res.message || 'Gagal memperbarui password.');
+          throw new Error(res.message || 'Failed to update password.');
         }
       } catch (err) {
-        showAlert(err.message || 'Gagal memperbarui password.', true);
+        showAlert(err.message || 'Failed to update password.', true);
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Perbarui Password';
+        submitBtn.textContent = 'Update Password';
       }
     };
   }

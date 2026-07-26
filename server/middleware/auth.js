@@ -16,7 +16,7 @@ export async function protect(req, res, next) {
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: 'Akses ditolak. Silakan login terlebih dahulu untuk mengakses halaman ini.',
+      message: 'Access denied. Please log in first to access this page.',
     });
   }
 
@@ -38,7 +38,7 @@ export async function protect(req, res, next) {
   } catch (error) {
     return res.status(401).json({
       success: false,
-      message: 'Sesi autentikasi telah kadaluarsa atau tidak valid. Silakan login kembali.',
+      message: 'Authentication session expired or invalid. Please log in again.',
     });
   }
 }

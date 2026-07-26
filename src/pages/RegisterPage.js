@@ -11,12 +11,12 @@ export function renderRegisterPage(navigate) {
         <!-- Registration Disabled Message Container -->
         <div id="registration-disabled-container" style="display: none; padding: 1rem 0; text-align: center;">
           <div style="padding: 0.8rem 1rem; border-radius: var(--radius-md); background-color: #451a03; color: #fdba74; border: 1px solid #9a3412; font-size: 0.9rem; margin-bottom: 1.5rem; text-align: left;">
-            🔒 <strong>Registrasi Ditutup:</strong> Sistem ini dikonfigurasi khusus untuk <strong>Single Administrator</strong>. Akun administrator sudah terdaftar di sistem.
+            🔒 <strong>Registration Closed:</strong> This system is configured strictly for a <strong>Single Administrator</strong>. An administrator account is already registered in the system.
           </div>
           <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem;">
-            Silakan masuk menggunakan akun administrator yang ada untuk mengakses telemetry dashboard.
+            Please log in using the existing administrator credentials to access the telemetry dashboard.
           </p>
-          <button class="btn btn-primary" id="btn-go-login" style="width: 100%;">Pergi ke Halaman Login</button>
+          <button class="btn btn-primary" id="btn-go-login" style="width: 100%;">Go to Login Page</button>
         </div>
 
         <form id="register-form">

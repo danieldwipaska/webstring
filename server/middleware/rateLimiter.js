@@ -27,7 +27,7 @@ export function createRateLimiter(options = {}) {
   const {
     windowMs = 15 * 60 * 1000,
     max = 5,
-    message = 'Terlalu banyak permintaan dari IP ini, silakan coba lagi nanti.',
+    message = 'Too many requests from this IP, please try again later.',
     keyPrefix = 'rl',
     isAuth = false,
   } = options;
@@ -101,7 +101,7 @@ export function createRateLimiter(options = {}) {
 export const loginLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: 'Terlalu banyak percobaan login dari IP ini. Akses diblokir sementara selama 15 menit untuk keamanan.',
+  message: 'Too many login attempts from this IP. Access temporarily blocked for 15 minutes for security.',
   keyPrefix: 'login_rl',
   isAuth: true,
 });
@@ -110,7 +110,7 @@ export const loginLimiter = createRateLimiter({
 export const apiLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 100,
-  message: 'Terlalu banyak permintaan API. Silakan perlambat permintaan Anda.',
+  message: 'Too many API requests. Please slow down your requests.',
   keyPrefix: 'api_rl',
   isAuth: false,
 });
