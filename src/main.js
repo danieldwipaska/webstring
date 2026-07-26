@@ -6,13 +6,14 @@ import { renderDashboard, initDashboard } from './pages/Dashboard.js';
 import { renderHistoryPage, initHistoryPage } from './pages/HistoryPage.js';
 import { renderSecurityPage, initSecurityPage } from './pages/SecurityPage.js';
 import { renderRealtimeLogsPage, initRealtimeLogsPage } from './pages/RealtimeLogsPage.js';
+import { renderSettingsPage, initSettingsPage } from './pages/SettingsPage.js';
 import { initSocket } from './utils/socket.js';
 import { checkAuthStatus } from './utils/api.js';
 
 let currentRoute = 'landing';
 let activePageCleanup = null;
 
-const PROTECTED_ROUTES = ['dashboard', 'history', 'security', 'logs'];
+const PROTECTED_ROUTES = ['dashboard', 'history', 'security', 'logs', 'settings'];
 
 async function navigate(route) {
   // Check Authentication & Authorization Guard for protected pages
@@ -62,6 +63,9 @@ function renderPage(route, authNoticeMessage = null) {
     case 'logs':
       pageHTML = renderRealtimeLogsPage();
       break;
+    case 'settings':
+      pageHTML = renderSettingsPage();
+      break;
     default:
       pageHTML = renderLandingPage(navigate);
       break;
@@ -107,6 +111,9 @@ function renderPage(route, authNoticeMessage = null) {
       break;
     case 'logs':
       activePageCleanup = initRealtimeLogsPage();
+      break;
+    case 'settings':
+      initSettingsPage(navigate);
       break;
   }
 }

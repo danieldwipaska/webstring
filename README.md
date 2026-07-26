@@ -33,6 +33,27 @@ A high-performance, lightweight, open-source real-time server monitoring and thr
 
 ---
 
+## 🔒 Single Administrator Security Policy & Password Recovery
+
+### Single-User Restriction
+To protect server telemetry and administration access, this platform enforces a **Strict Single Administrator Policy**:
+- **Registration Restriction**: Only **1 administrator account** can exist in the database.
+- Once an initial user is registered, both the web frontend (`/register`) and backend API (`POST /api/auth/register`) automatically block any subsequent registration attempts.
+- Registered users can modify their **Username** and **Password** at any time through the **Account Settings** page (`/settings`) after logging in.
+
+### 🔑 Password Reset Procedure (Database Deletion)
+If you forget your administrator password or lose access to your account:
+1. Connect directly to your MongoDB database using `mongosh` CLI or **MongoDB Compass**.
+2. Remove the existing user document from the `users` collection:
+   ```javascript
+   // MongoDB Shell Command
+   use ubuntu-monitor
+   db.users.deleteMany({})
+   ```
+3. After the collection is cleared, the system will automatically re-open the registration form (`/register`), allowing you to register a fresh administrator account with a new username and password.
+
+---
+
 ## 🚀 Quick Start (Development)
 
 1. **Clone & Install Dependencies**:

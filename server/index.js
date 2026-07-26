@@ -13,6 +13,9 @@ import { collectMetrics, getLatestMetrics } from './services/systemMonitor.js';
 import { checkAnomalies } from './services/anomalyDetector.js';
 import { autoDetectAndStartLogTailer, pushInternalLog } from './services/logWatcher.js';
 
+import { applySecurityHeaders } from './middleware/securityHeaders.js';
+import { apiLimiter, loginLimiter } from './middleware/rateLimiter.js';
+
 import authRoutes from './routes/authRoutes.js';
 import metricRoutes from './routes/metricRoutes.js';
 import securityRoutes from './routes/securityRoutes.js';
@@ -27,6 +30,9 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
+// Security Hardening: Disable Express signature header
+app.disable('x-powered-by');
+
 // Socket.io initialization with CORS & Credentials
 const io = new Server(server, {
   cors: {
@@ -35,6 +41,11 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
   },
 });
+
+app.set('io', io);
+
+// Security Headers Middleware
+app.use(applySecurityHeaders);
 
 app.use(
   cors({
@@ -66,6 +77,12 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Specific Rate Limiter for Login Route
+app.use('/api/auth/login', loginLimiter);
+
+// Global Rate Limiter for API Routes
+app.use('/api', apiLimiter);
 
 // API Routes
 app.use('/api/auth', authRoutes);

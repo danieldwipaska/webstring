@@ -1,12 +1,24 @@
-import { fetchApi, setAuthToken, setCurrentUser } from '../utils/api.js';
+import { fetchApi, getRegisterStatus, setAuthToken, setCurrentUser } from '../utils/api.js';
 
 export function renderRegisterPage(navigate) {
   return `
-    <div class="container" style="max-width: 440px; padding-top: 4rem;">
+    <div class="container" style="max-width: 460px; padding-top: 4rem;">
       <div class="card">
         <div class="card-header">
           <div class="card-title">Register Administrator Account</div>
         </div>
+        
+        <!-- Registration Disabled Message Container -->
+        <div id="registration-disabled-container" style="display: none; padding: 1rem 0; text-align: center;">
+          <div style="padding: 0.8rem 1rem; border-radius: var(--radius-md); background-color: #451a03; color: #fdba74; border: 1px solid #9a3412; font-size: 0.9rem; margin-bottom: 1.5rem; text-align: left;">
+            🔒 <strong>Registrasi Ditutup:</strong> Sistem ini dikonfigurasi khusus untuk <strong>Single Administrator</strong>. Akun administrator sudah terdaftar di sistem.
+          </div>
+          <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem;">
+            Silakan masuk menggunakan akun administrator yang ada untuk mengakses telemetry dashboard.
+          </p>
+          <button class="btn btn-primary" id="btn-go-login" style="width: 100%;">Pergi ke Halaman Login</button>
+        </div>
+
         <form id="register-form">
           <div id="register-alert" style="display: none; padding: 0.6rem; margin-bottom: 1rem; border-radius: var(--radius-sm); font-size: 0.85rem; background-color: #450a0a; color: #fca5a5; border: 1px solid #991b1b;"></div>
 
@@ -27,7 +39,8 @@ export function renderRegisterPage(navigate) {
 
           <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;" id="register-submit-btn">Create Account</button>
         </form>
-        <div style="margin-top: 1.25rem; font-size: 0.85rem; color: var(--text-muted); text-align: center;">
+        
+        <div id="login-link-footer" style="margin-top: 1.25rem; font-size: 0.85rem; color: var(--text-muted); text-align: center;">
           Already have an account? <a href="#" id="link-to-login">Login here</a>
         </div>
       </div>
@@ -35,16 +48,38 @@ export function renderRegisterPage(navigate) {
   `;
 }
 
-export function initRegisterPage(navigate) {
+export async function initRegisterPage(navigate) {
   const form = document.getElementById('register-form');
   const alertEl = document.getElementById('register-alert');
   const loginLink = document.getElementById('link-to-login');
+  const disabledContainer = document.getElementById('registration-disabled-container');
+  const loginLinkFooter = document.getElementById('login-link-footer');
+  const btnGoLogin = document.getElementById('btn-go-login');
 
   if (loginLink) {
     loginLink.onclick = (e) => {
       e.preventDefault();
       navigate('login');
     };
+  }
+
+  if (btnGoLogin) {
+    btnGoLogin.onclick = () => {
+      navigate('login');
+    };
+  }
+
+  // Check backend single user registration status
+  try {
+    const status = await getRegisterStatus();
+    if (status.success && !status.canRegister) {
+      if (form) form.style.display = 'none';
+      if (loginLinkFooter) loginLinkFooter.style.display = 'none';
+      if (disabledContainer) disabledContainer.style.display = 'block';
+      return;
+    }
+  } catch (err) {
+    console.warn('Register status check failed:', err);
   }
 
   if (form) {
@@ -84,3 +119,4 @@ export function initRegisterPage(navigate) {
     };
   }
 }
+

@@ -33,9 +33,39 @@ function sendTokenResponse(res, statusCode, user, message = 'Success') {
   });
 }
 
+// GET /api/auth/register-status - Check if registration is open (max 1 user)
+router.get('/register-status', async (req, res) => {
+  if (getDBStatus().isConnected) {
+    try {
+      const count = await User.countDocuments();
+      return res.json({
+        success: true,
+        canRegister: count === 0,
+        count,
+      });
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  } else {
+    // In-memory demo mode: allow registration status check
+    return res.json({
+      success: true,
+      canRegister: true,
+      count: 0,
+    });
+  }
+});
+
+function sanitizeInput(val) {
+  if (typeof val !== 'string') return '';
+  return val.trim();
+}
+
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
-  const { username, email, password } = req.body;
+  const username = sanitizeInput(req.body.username);
+  const email = sanitizeInput(req.body.email);
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
 
   if (!username || !email || !password) {
     return res.status(400).json({ success: false, message: 'Semua field (username, email, password) wajib diisi.' });
@@ -43,12 +73,20 @@ router.post('/register', async (req, res) => {
 
   if (getDBStatus().isConnected) {
     try {
-      const userExists = await User.findOne({ $or: [{ email }, { username }] });
+      const userCount = await User.countDocuments();
+      if (userCount >= 1) {
+        return res.status(400).json({
+          success: false,
+          message: 'Registrasi ditutup. Sistem ini hanya memperbolehkan maksimal 1 akun pengguna terdaftar.',
+        });
+      }
+
+      const userExists = await User.findOne({ $or: [{ email: email.toLowerCase() }, { username }] });
       if (userExists) {
         return res.status(400).json({ success: false, message: 'Username atau Email sudah terdaftar.' });
       }
 
-      const user = await User.create({ username, email, password });
+      const user = await User.create({ username, email: email.toLowerCase(), password });
       return sendTokenResponse(res, 201, user, 'Registrasi berhasil.');
     } catch (error) {
       return res.status(500).json({ success: false, message: error.message });
@@ -62,7 +100,8 @@ router.post('/register', async (req, res) => {
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
-  const { emailOrUsername, password } = req.body;
+  const emailOrUsername = sanitizeInput(req.body.emailOrUsername);
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
 
   if (!emailOrUsername || !password) {
     return res.status(400).json({ success: false, message: 'Username/Email dan password wajib diisi.' });
@@ -89,6 +128,60 @@ router.post('/login', async (req, res) => {
       return sendTokenResponse(res, 200, demoUser, 'Login berhasil (Demo Mode).');
     }
     return res.status(401).json({ success: false, message: 'Password salah.' });
+  }
+});
+
+// PUT /api/auth/settings - Update username and/or password for logged-in user
+router.put('/settings', protect, async (req, res) => {
+  const username = sanitizeInput(req.body.username);
+  const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
+  const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Akses ditolak.' });
+  }
+
+  if (getDBStatus().isConnected) {
+    try {
+      const user = await User.findById(req.user.id || req.user._id);
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
+      }
+
+      // If user is attempting to change password
+      if (newPassword) {
+        if (newPassword.length < 6) {
+          return res.status(400).json({ success: false, message: 'Password baru minimal 6 karakter.' });
+        }
+        if (currentPassword) {
+          const isMatch = await user.matchPassword(currentPassword);
+          if (!isMatch) {
+            return res.status(400).json({ success: false, message: 'Password lama saat ini salah.' });
+          }
+        }
+        user.password = newPassword; // Will be hashed in userSchema.pre('save')
+      }
+
+      if (username && username !== '' && username !== user.username) {
+        const usernameExists = await User.findOne({ username, _id: { $ne: user._id } });
+        if (usernameExists) {
+          return res.status(400).json({ success: false, message: 'Username sudah digunakan oleh akun lain.' });
+        }
+        user.username = username;
+      }
+
+      await user.save();
+      return sendTokenResponse(res, 200, user, 'Pengaturan akun berhasil diperbarui.');
+    } catch (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  } else {
+    // In-memory demo mode update
+    const updatedDemoUser = {
+      ...req.user,
+      username: username || req.user.username,
+    };
+    return sendTokenResponse(res, 200, updatedDemoUser, 'Pengaturan akun berhasil diperbarui (Demo Mode).');
   }
 });
 

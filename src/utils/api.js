@@ -79,3 +79,26 @@ export async function logoutUser() {
     setCurrentUser(null);
   }
 }
+
+export async function getRegisterStatus() {
+  try {
+    const res = await fetchApi('/auth/register-status');
+    return res;
+  } catch (err) {
+    console.warn('Could not check register status:', err.message);
+    return { success: false, canRegister: false };
+  }
+}
+
+export async function updateAccountSettings(data) {
+  const res = await fetchApi('/auth/settings', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+  if (res.success && res.user) {
+    setCurrentUser(res.user);
+    if (res.token) setAuthToken(res.token);
+  }
+  return res;
+}
+

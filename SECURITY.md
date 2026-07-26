@@ -9,6 +9,33 @@ We recommend using the latest release of **Ubuntu Realtime Server Sentinel (`web
 | 1.0.x   | :white_check_mark: |
 | < 1.0.0 | :x:                |
 
+## Security Architecture & Hardening Features
+
+This application implements multi-layered security controls to protect server telemetry and administration credentials:
+
+1. **Anti Brute-Force Rate Limiter (`loginLimiter`)**:
+   - Limits login attempts to **5 attempts per 15 minutes** per IP address.
+   - Responds with HTTP `429 Too Many Requests` and a `Retry-After` header when exceeded.
+   - Automatically logs a `SUSPICIOUS_AUTH_ATTEMPT` security alert for live threat tracking.
+
+2. **Global API Rate Limiter (`apiLimiter`)**:
+   - Limits general API requests to **100 requests per minute** per IP to protect against Denial of Service (DDoS) and API scraping.
+
+3. **NoSQL Injection Prevention**:
+   - Strictly sanitizes and coerces authentication parameters (`username`, `email`, `emailOrUsername`, `password`) to string primitives, preventing object query operator injection attacks.
+
+4. **HTTP Security Headers**:
+   - `X-Frame-Options: DENY` (Anti Clickjacking)
+   - `X-Content-Type-Options: nosniff` (Anti MIME Sniffing)
+   - `X-XSS-Protection: 1; mode=block`
+   - `Content-Security-Policy` (CSP)
+   - Suppressed `X-Powered-By` Express signature header.
+
+5. **Single-User Access Guard**:
+   - Hardened registration route (`POST /api/auth/register`) preventing more than **1 administrator account** from being created.
+
+---
+
 ## Reporting a Vulnerability
 
 We take the security of this project seriously. If you discover a security vulnerability, please follow responsible disclosure guidelines:
