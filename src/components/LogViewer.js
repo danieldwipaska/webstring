@@ -113,8 +113,13 @@ export function initLogViewer() {
     if (!terminalEl) return;
 
     const filtered = logs.filter((log) => {
-      // Path or IP search filter
-      if (filterText && !log.path.toLowerCase().includes(filterText) && !log.ip.includes(filterText)) {
+      // Path, IP, or source label search filter
+      if (
+        filterText &&
+        !log.path.toLowerCase().includes(filterText) &&
+        !log.ip.includes(filterText) &&
+        !(log.source || '').toLowerCase().includes(filterText)
+      ) {
         return false;
       }
       // Status code filter
@@ -137,10 +142,12 @@ export function initLogViewer() {
         const method = escapeHtml(l.method);
         const path = escapeHtml(l.path);
         const ip = escapeHtml(l.ip);
+        const source = escapeHtml(l.source || 'sentinel');
         const responseTimeMs = Number(l.responseTimeMs) || 0;
         return `
         <div class="log-line">
           <span class="log-time">[${timeStr}]</span>
+          <span class="mono" style="color: var(--color-accent); font-size: 0.72rem;">[${source}]</span>
           <span class="log-method ${method}">${method}</span>
           <span class="log-status ${statusGroup}">${statusCodeNum}</span>
           <span class="log-path">${path}</span>

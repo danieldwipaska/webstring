@@ -46,36 +46,50 @@ let lastDbSaveTime = 0;
 
 export async function collectMetrics() {
   try {
-    const [currentLoad, mem, fs, processes, osInfo] = await Promise.all([
+    const [currentLoad, mem, fs, processes, osInfo, netStats, netConns] = await Promise.all([
       si.currentLoad(),
       si.mem(),
       si.fsSize(),
       si.processes(),
       getCachedOsInfo(),
+      si.networkStats().catch(() => []),
+      si.networkConnections().catch(() => []),
     ]);
 
     // Disk calculations (main mount / or first disk)
     const mainFs = fs.find((f) => f.mount === '/') || fs[0] || { use: 0, size: 100, used: 0 };
 
-    // Net stats
-    const netStats = await si.networkStats();
+    // Net stats (prefer primary external/non-loopback interface)
     let netTxSec = 0;
     let netRxSec = 0;
     const now = Date.now();
     const timeDiffSec = Math.max(1, (now - lastNetTime) / 1000);
 
     if (netStats && netStats.length > 0) {
-      const primaryNet = netStats[0];
+      const primaryNet =
+        netStats.find(
+          (n) =>
+            n.iface &&
+            n.iface !== 'lo' &&
+            !n.iface.startsWith('veth') &&
+            !n.iface.startsWith('docker') &&
+            !n.iface.startsWith('br-')
+        ) || netStats[0];
+
       if (lastTx > 0 && primaryNet.tx_bytes >= lastTx) {
         netTxSec = Math.round((primaryNet.tx_bytes - lastTx) / timeDiffSec);
       }
       if (lastRx > 0 && primaryNet.rx_bytes >= lastRx) {
         netRxSec = Math.round((primaryNet.rx_bytes - lastRx) / timeDiffSec);
       }
-      lastTx = primaryNet.tx_bytes;
-      lastRx = primaryNet.rx_bytes;
+      lastTx = primaryNet.tx_bytes || 0;
+      lastRx = primaryNet.rx_bytes || 0;
     }
     lastNetTime = now;
+
+    const establishedConns = Array.isArray(netConns)
+      ? netConns.filter((c) => c.state === 'ESTABLISHED').length
+      : 0;
 
     // Top processes
     const topProc = (processes.list || [])
@@ -108,7 +122,7 @@ export async function collectMetrics() {
       diskPercentage,
       networkTxSec: netTxSec,
       networkRxSec: netRxSec,
-      activeConnections: processes.running || 0,
+      activeConnections: establishedConns,
       processCount: processes.all || 0,
       loadAverage: [
         Math.round((currentLoad.avgLoad || 0) * 100) / 100,

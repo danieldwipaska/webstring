@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import readline from 'readline';
 import { RequestLog } from '../models/RequestLog.js';
 import { getDBStatus } from '../config/db.js';
@@ -45,7 +46,7 @@ export function pushInternalLog(logEntry, io) {
     statusCode: logEntry.statusCode || 200,
     responseTimeMs: logEntry.responseTimeMs || 0,
     userAgent: typeof logEntry.userAgent === 'string' ? logEntry.userAgent.substring(0, 200) : '',
-    source: logEntry.source || activeLogSource,
+    source: logEntry.source || 'sentinel',
     timestamp: new Date().toISOString(),
   };
 
@@ -89,44 +90,137 @@ export function pushInternalLog(logEntry, io) {
   }
 }
 
+/**
+ * Parses a configured log path entry. Supports "label:/path/to/file.log" or "/path/to/file.log".
+ */
+function parseLogTargetEntry(rawEntry) {
+  const trimmed = rawEntry.trim();
+  if (!trimmed) return null;
+
+  const colonIdx = trimmed.indexOf(':');
+  if (colonIdx > 0 && !trimmed.slice(0, colonIdx).includes('/')) {
+    const label = trimmed.slice(0, colonIdx).trim();
+    const filePath = trimmed.slice(colonIdx + 1).trim();
+    if (filePath) return { label, filePath };
+  }
+
+  return {
+    label: path.basename(trimmed) || 'system-log',
+    filePath: trimmed,
+  };
+}
+
+/**
+ * Parses a single log line from either JSON-line HTTP logs (e.g. NestJS CustomLoggerService)
+ * or Nginx/Apache Combined Log Format.
+ */
+export function parseLogLine(line, sourceLabel) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  // 1. JSON-line HTTP log format (e.g. bahari-app logs/http.log)
+  if (trimmed.startsWith('{')) {
+    try {
+      const obj = JSON.parse(trimmed);
+      if (obj && typeof obj.method === 'string' && (obj.url || obj.path) && obj.statusCode !== undefined) {
+        return {
+          ip: typeof obj.ipAddress === 'string' ? obj.ipAddress : typeof obj.ip === 'string' ? obj.ip : '127.0.0.1',
+          method: obj.method.toUpperCase(),
+          path: obj.url || obj.path,
+          statusCode: parseInt(obj.statusCode, 10) || 200,
+          responseTimeMs: Math.round(Number(obj.responseTime ?? obj.responseTimeMs ?? 0) || 0),
+          userAgent: typeof obj.userAgent === 'string' ? obj.userAgent : '',
+          source: sourceLabel,
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 2. Nginx / Apache Combined Log Format
+  const match = trimmed.match(
+    /^(\S+) \S+ \S+ \[.*?\] "(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (\S+).*?" (\d{3}) \S+(?: "[^"]*" "([^"]*)")?/
+  );
+  if (match) {
+    return {
+      ip: match[1],
+      method: match[2],
+      path: match[3],
+      statusCode: parseInt(match[4], 10),
+      responseTimeMs: 0,
+      userAgent: match[5] || '',
+      source: sourceLabel,
+    };
+  }
+
+  return null;
+}
+
 export function autoDetectAndStartLogTailer(customPath, io) {
   const isEnabled = (process.env.ENABLE_SYSTEM_LOG_TAILER || 'false').toLowerCase() === 'true';
   if (!isEnabled) {
     activeLogSource = 'Application Stream (System access log tailing disabled for multi-app isolation)';
-    console.log('[Log Watcher] System access log tailing disabled (ENABLE_SYSTEM_LOG_TAILER != true). Monitoring application traffic only.');
+    console.log(
+      '[Log Watcher] System access log tailing disabled (ENABLE_SYSTEM_LOG_TAILER != true). Monitoring application traffic only.'
+    );
     return;
   }
 
-  const candidatePaths = [
-    customPath,
-    process.env.LOG_FILE_PATH,
-    '/var/log/nginx/access.log',
-    '/var/log/nginx/other_vhosts_access.log',
-    '/var/log/apache2/access.log',
-    '/var/log/httpd/access_log',
-  ].filter(Boolean);
+  const configuredMulti = (process.env.LOG_FILE_PATHS || '')
+    .split(',')
+    .map(parseLogTargetEntry)
+    .filter(Boolean);
 
-  let targetPath = null;
-  for (const p of candidatePaths) {
-    if (fs.existsSync(p)) {
-      targetPath = p;
-      break;
+  let targets = configuredMulti;
+
+  if (targets.length === 0) {
+    const singleRaw = customPath || process.env.LOG_FILE_PATH;
+    if (singleRaw) {
+      const parsed = parseLogTargetEntry(singleRaw);
+      if (parsed) targets = [parsed];
     }
   }
 
-  if (!targetPath) {
-    activeLogSource = 'Application Stream (No configured system access log found)';
-    console.log('[Log Watcher] No external web server access log accessible. Monitoring application HTTP traffic.');
+  if (targets.length === 0) {
+    const fallbackPaths = [
+      '/var/log/nginx/access.log',
+      '/var/log/nginx/other_vhosts_access.log',
+      '/var/log/apache2/access.log',
+      '/var/log/httpd/access_log',
+    ];
+    for (const p of fallbackPaths) {
+      if (fs.existsSync(p)) {
+        targets = [{ label: 'nginx', filePath: p }];
+        break;
+      }
+    }
+  }
+
+  const activeTargets = [];
+  for (const target of targets) {
+    if (!fs.existsSync(target.filePath)) {
+      console.warn(`[Log Watcher Warning] Log file not found (${target.label}): ${target.filePath}`);
+      continue;
+    }
+    if (startLogTailerFile(target.filePath, target.label, io)) {
+      activeTargets.push(`${target.label} (${target.filePath})`);
+    }
+  }
+
+  if (activeTargets.length === 0) {
+    activeLogSource = 'Application Stream (No accessible configured log files found)';
+    console.log('[Log Watcher] No external access log accessible. Monitoring application HTTP traffic only.');
     return;
   }
 
-  activeLogSource = `System Access Log (${targetPath})`;
-  startLogTailerFile(targetPath, io);
+  activeLogSource = activeTargets.join(' | ');
 }
 
-function startLogTailerFile(filePath, io) {
+function startLogTailerFile(filePath, sourceLabel, io) {
   try {
-    console.log(`[Log Watcher Sentinel] Tailing server access log file: ${filePath}`);
+    console.log(`[Log Watcher Sentinel] Tailing [${sourceLabel}]: ${filePath}`);
     let filePosition = fs.statSync(filePath).size;
 
     fs.watch(filePath, (eventType) => {
@@ -149,24 +243,9 @@ function startLogTailerFile(filePath, io) {
 
             const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
             rl.on('line', (line) => {
-              if (!line.trim()) return;
-              // Parse Combined Log Format (Nginx / Apache)
-              const match = line.match(
-                /^(\S+) \S+ \S+ \[.*?\] "(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (\S+).*?" (\d{3}) \S+(?: "[^"]*" "([^"]*)")?/
-              );
-              if (match) {
-                pushInternalLog(
-                  {
-                    ip: match[1],
-                    method: match[2],
-                    path: match[3],
-                    statusCode: parseInt(match[4], 10),
-                    responseTimeMs: 0,
-                    userAgent: match[5] || '',
-                    source: `Server Log (${filePath})`,
-                  },
-                  io
-                );
+              const parsed = parseLogLine(line, sourceLabel);
+              if (parsed) {
+                pushInternalLog(parsed, io);
               }
             });
 
@@ -177,8 +256,10 @@ function startLogTailerFile(filePath, io) {
         }
       }
     });
+    return true;
   } catch (err) {
-    console.warn(`[Log Watcher Warning] Could not tail ${filePath}: ${err.message}`);
+    console.warn(`[Log Watcher Warning] Could not tail [${sourceLabel}] ${filePath}: ${err.message}`);
+    return false;
   }
 }
 

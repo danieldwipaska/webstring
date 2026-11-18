@@ -37,24 +37,25 @@ router.get('/logs', protect, (req, res) => {
 // GET /api/system/setup-instructions - Static hardened deployment templates (no runtime path/port leakage)
 router.get('/setup-instructions', (req, res) => {
   const systemdService = `[Unit]
-Description=Ubuntu Realtime Server Monitoring Service
-After=network.target mongod.service
+Description=Webstring Realtime Server Sentinel Service
+After=network-online.target mongod.service
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu-monitor
-Group=ubuntu-monitor
-WorkingDirectory=/opt/ubuntu-monitor
-EnvironmentFile=/opt/ubuntu-monitor/.env
-ExecStart=/usr/bin/node /opt/ubuntu-monitor/server/index.js
-Restart=always
-RestartSec=10
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/webstring
+EnvironmentFile=/var/www/webstring/.env
+Environment=PATH=/opt/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
-Environment=PORT=5000
+Environment=PORT=3004
+ExecStart=/opt/node20/bin/node /var/www/webstring/server/index.js
+Restart=always
+RestartSec=10
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
 ProtectHome=true
 
 [Install]
@@ -64,19 +65,21 @@ WantedBy=multi-user.target`;
     listen 80;
     server_name monitor.your-domain.com;
 
+    access_log /var/log/nginx/monitor-access.log;
+
     # Optional: Restrict dashboard access to trusted admin/VPN IPs only
-    # allow 10.0.0.0/8;
+    # allow 203.0.113.10;
     # deny all;
 
     # Serve static built frontend files
     location / {
-        root /opt/ubuntu-monitor/dist;
+        root /var/www/webstring/dist;
         try_files $uri $uri/ /index.html;
     }
 
     # Proxy REST API requests
     location /api/ {
-        proxy_pass http://127.0.0.1:5000/api/;
+        proxy_pass http://127.0.0.1:3004/api/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -86,7 +89,7 @@ WantedBy=multi-user.target`;
 
     # Proxy Realtime WebSocket requests
     location /socket.io/ {
-        proxy_pass http://127.0.0.1:5000/socket.io/;
+        proxy_pass http://127.0.0.1:3004/socket.io/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "Upgrade";
@@ -95,6 +98,8 @@ WantedBy=multi-user.target`;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 }`;
 
@@ -104,9 +109,8 @@ WantedBy=multi-user.target`;
       systemdService,
       nginxConfig,
       cliCommands: [
-        '# 1. Create dedicated non-root system user & install',
-        'sudo useradd --system --no-create-home --shell /usr/sbin/nologin ubuntu-monitor',
-        'npm ci && npm run build',
+        '# 1. Install dependencies & build frontend',
+        'cd /var/www/webstring && npm ci && npm run build',
         '',
         '# 2. Configure .env with a strong 64-char random JWT_SECRET',
         'openssl rand -hex 32',
@@ -116,10 +120,11 @@ WantedBy=multi-user.target`;
         'sudo systemctl daemon-reload',
         'sudo systemctl enable --now ubuntu-monitor',
         '',
-        '# 4. Setup Isolated Nginx Subdomain & TLS (Certbot)',
+        '# 4. Setup Isolated Nginx Subdomain & HTTPS (Certbot)',
         'sudo cp deployment/nginx-monitor.conf /etc/nginx/sites-available/ubuntu-monitor',
         'sudo ln -s /etc/nginx/sites-available/ubuntu-monitor /etc/nginx/sites-enabled/',
         'sudo nginx -t && sudo systemctl reload nginx',
+        'sudo certbot --nginx -d monitor.your-domain.com',
       ],
     },
   });
