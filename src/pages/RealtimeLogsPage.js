@@ -5,8 +5,8 @@ export function renderRealtimeLogsPage() {
     <div class="container">
       <div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;">
         <div>
-          <h1 class="page-title">Realtime Request Log Viewer</h1>
-          <p class="page-subtitle">Streaming all overall requests entering this Ubuntu server live (Nginx, Apache & Global Traffic)</p>
+          <h1 class="page-title">Live & Historical Log Explorer</h1>
+          <p class="page-subtitle">Stream real-time traffic or query historical & rotated logs (Nginx, NestJS, Winston, MongoDB)</p>
         </div>
         <div class="mono" style="font-size: 0.8rem; color: var(--color-accent);" id="active-log-source-badge">
           Source: Auto-Detecting System Access Logs...

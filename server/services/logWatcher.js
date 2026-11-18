@@ -17,6 +17,7 @@ const MAX_PENDING_DB_BATCH = 50;
 const ipRequestCounts = new Map();
 const MAX_TRACKED_IPS = 5000;
 let activeLogSource = 'Application Stream';
+let configuredTargetsCache = [];
 
 setInterval(() => {
   ipRequestCounts.clear();
@@ -37,19 +38,20 @@ setInterval(async () => {
 export function pushInternalLog(logEntry, io) {
   const isHttp = logEntry.isHttp !== false;
   const rawText = typeof logEntry.path === 'string' ? logEntry.path : '/';
-  const sanitizedPath = isHttp ? rawText.split('?')[0].substring(0, 300) : rawText.substring(0, 400);
+  const sanitizedPath = isHttp ? rawText.split('?')[0].substring(0, 300) : rawText.substring(0, 500);
 
   const formattedLog = {
     id: Date.now() + Math.random().toString(36).substring(2, 7),
     ip: logEntry.ip || (isHttp ? '127.0.0.1' : 'app'),
     method: logEntry.method || 'GET',
     path: sanitizedPath,
+    detail: typeof logEntry.detail === 'string' ? logEntry.detail.substring(0, 500) : '',
     statusCode: logEntry.statusCode || 200,
     responseTimeMs: logEntry.responseTimeMs || 0,
     userAgent: typeof logEntry.userAgent === 'string' ? logEntry.userAgent.substring(0, 200) : '',
     source: logEntry.source || 'sentinel',
     isHttp,
-    timestamp: new Date().toISOString(),
+    timestamp: logEntry.timestamp || new Date().toISOString(),
   };
 
   // 1. In-Memory Ring Buffer for UI
@@ -127,6 +129,37 @@ function mapLogLevelToStatusAndMethod(levelRaw) {
   return { method: 'INFO', statusCode: 200 };
 }
 
+function normalizeTimestamp(rawTs) {
+  if (!rawTs) return null;
+  if (typeof rawTs === 'number') {
+    const d = new Date(rawTs);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  if (typeof rawTs !== 'string') return null;
+  const trimmed = rawTs.trim();
+  if (!trimmed) return null;
+
+  // Handle Nginx date format: 18/Nov/2026:23:28:00 +0700
+  const nginxDate = trimmed.match(/^(\d{2})\/([A-Za-z]{3})\/(\d{4}):(\d{2}:\d{2}:\d{2})(?:\s+([+-]\d{4}))?$/);
+  if (nginxDate) {
+    const formatted = `${nginxDate[1]} ${nginxDate[2]} ${nginxDate[3]} ${nginxDate[4]}${nginxDate[5] ? ' ' + nginxDate[5] : ''}`;
+    const d = new Date(formatted);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+
+  // Handle "YYYY-MM-DD HH:mm:ss"
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(trimmed) ? trimmed.replace(' ', 'T') : trimmed;
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function extractWinstonDetail(obj) {
+  if (typeof obj.stack_trace === 'string' && obj.stack_trace) return obj.stack_trace;
+  if (typeof obj.stack === 'string' && obj.stack) return obj.stack;
+  if (typeof obj.error === 'string' && obj.error) return obj.error;
+  return '';
+}
+
 /**
  * Parses a single log line from:
  * 1) JSON-line HTTP logs (e.g. NestJS CustomLoggerService)
@@ -141,32 +174,40 @@ export function parseLogLine(line, sourceLabel, options = {}) {
   if (trimmed.startsWith('{')) {
     try {
       const obj = JSON.parse(trimmed);
+      const parsedTs = normalizeTimestamp(obj.timestamp || obj.time || obj.date) || options.fallbackTimestamp || null;
+
       if (obj && typeof obj.method === 'string' && (obj.url || obj.path) && obj.statusCode !== undefined) {
         return {
           ip: typeof obj.ipAddress === 'string' ? obj.ipAddress : typeof obj.ip === 'string' ? obj.ip : '127.0.0.1',
           method: obj.method.toUpperCase(),
           path: obj.url || obj.path,
+          detail: '',
           statusCode: parseInt(obj.statusCode, 10) || 200,
           responseTimeMs: Math.round(Number(obj.responseTime ?? obj.responseTimeMs ?? 0) || 0),
           userAgent: typeof obj.userAgent === 'string' ? obj.userAgent : '',
           source: sourceLabel,
           isHttp: true,
+          timestamp: parsedTs || new Date().toISOString(),
         };
       }
 
       if (obj && (typeof obj.message === 'string' || typeof obj.level === 'string')) {
         const { method, statusCode } = mapLogLevelToStatusAndMethod(obj.level);
         const contextPrefix = typeof obj.context === 'string' && obj.context ? `[${obj.context}] ` : '';
+        const servicePrefix =
+          !contextPrefix && typeof obj.service === 'string' && obj.service ? `[${obj.service}] ` : '';
         const msg = typeof obj.message === 'string' ? obj.message : JSON.stringify(obj);
         return {
           ip: typeof obj.ipAddress === 'string' ? obj.ipAddress : typeof obj.ip === 'string' ? obj.ip : 'app',
           method,
-          path: `${contextPrefix}${msg}`,
+          path: `${contextPrefix}${servicePrefix}${msg}`,
+          detail: extractWinstonDetail(obj),
           statusCode,
           responseTimeMs: 0,
           userAgent: '',
           source: sourceLabel,
           isHttp: false,
+          timestamp: parsedTs || new Date().toISOString(),
         };
       }
       return null;
@@ -177,18 +218,21 @@ export function parseLogLine(line, sourceLabel, options = {}) {
 
   // 2. Nginx / Apache Combined Log Format
   const nginxMatch = trimmed.match(
-    /^(\S+) \S+ \S+ \[.*?\] "(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (\S+).*?" (\d{3}) \S+(?: "[^"]*" "([^"]*)")?/
+    /^(\S+) \S+ \S+ \[(.*?)\] "(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (\S+).*?" (\d{3}) \S+(?: "[^"]*" "([^"]*)")?/
   );
   if (nginxMatch) {
+    const parsedTs = normalizeTimestamp(nginxMatch[2]) || options.fallbackTimestamp || new Date().toISOString();
     return {
       ip: nginxMatch[1],
-      method: nginxMatch[2],
-      path: nginxMatch[3],
-      statusCode: parseInt(nginxMatch[4], 10),
+      method: nginxMatch[3],
+      path: nginxMatch[4],
+      detail: '',
+      statusCode: parseInt(nginxMatch[5], 10),
       responseTimeMs: 0,
-      userAgent: nginxMatch[5] || '',
+      userAgent: nginxMatch[6] || '',
       source: sourceLabel,
       isHttp: true,
+      timestamp: parsedTs,
     };
   }
 
@@ -198,20 +242,22 @@ export function parseLogLine(line, sourceLabel, options = {}) {
   }
 
   const tsLevelMatch = trimmed.match(
-    /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?(?:\s+\[?([a-zA-Z]+)\]?:?)?\s+(.*)$/
+    /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)(?:\s+\[?([a-zA-Z]+)\]?:?)?\s+(.*)$/
   );
   if (tsLevelMatch) {
-    const levelGuess = tsLevelMatch[1] || (sourceLabel.toLowerCase().includes('error') ? 'error' : 'info');
+    const levelGuess = tsLevelMatch[2] || (sourceLabel.toLowerCase().includes('error') ? 'error' : 'info');
     const { method, statusCode } = mapLogLevelToStatusAndMethod(levelGuess);
     return {
       ip: 'app',
       method,
-      path: tsLevelMatch[2] || trimmed,
+      path: tsLevelMatch[3] || trimmed,
+      detail: '',
       statusCode,
       responseTimeMs: 0,
       userAgent: '',
       source: sourceLabel,
       isHttp: false,
+      timestamp: normalizeTimestamp(tsLevelMatch[1]) || options.fallbackTimestamp || new Date().toISOString(),
     };
   }
 
@@ -222,11 +268,13 @@ export function parseLogLine(line, sourceLabel, options = {}) {
       ip: 'app',
       method,
       path: prefixLevelMatch[2] || trimmed,
+      detail: '',
       statusCode,
       responseTimeMs: 0,
       userAgent: '',
       source: sourceLabel,
       isHttp: false,
+      timestamp: options.fallbackTimestamp || new Date().toISOString(),
     };
   }
 
@@ -236,50 +284,109 @@ export function parseLogLine(line, sourceLabel, options = {}) {
     ip: 'app',
     method,
     path: trimmed,
+    detail: '',
     statusCode,
     responseTimeMs: 0,
     userAgent: '',
     source: sourceLabel,
     isHttp: false,
+    timestamp: options.fallbackTimestamp || new Date().toISOString(),
   };
 }
 
-function globBaseNameToRegex(basePattern) {
+function globBaseNameToRegex(basePattern, includeRotatedSuffix = false) {
   const escaped = basePattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`);
+  const suffix = includeRotatedSuffix ? '(?:\\.\\d+)?' : '';
+  return new RegExp(`^${escaped}${suffix}$`);
 }
 
-function findLatestMatchingFile(dirPath, nameRegex) {
+function buildHistoricalNameRegex(targetFilePath) {
+  const base = path.basename(targetFilePath);
+  if (base.includes('*')) {
+    return globBaseNameToRegex(base, true);
+  }
+  // Handle both nginx style (file.log.1) and NestJS CustomLoggerService style (http.1.log)
+  const ext = path.extname(base);
+  const stem = ext ? base.slice(0, -ext.length) : base;
+  const escapedBase = base.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const escapedStem = stem.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const escapedExt = ext.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  if (ext) {
+    return new RegExp(`^(?:${escapedBase}(?:\\.\\d+)?|${escapedStem}\\.\\d+${escapedExt})$`);
+  }
+  return new RegExp(`^${escapedBase}(?:\\.\\d+)?$`);
+}
+
+function findMatchingFilesInDir(dirPath, nameRegex) {
   try {
+    if (!fs.existsSync(dirPath)) return [];
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    let bestFile = null;
-    let bestMtime = -1;
+    const files = [];
 
     for (const entry of entries) {
       if (!entry.isFile() || !nameRegex.test(entry.name)) continue;
       const fullPath = path.join(dirPath, entry.name);
       try {
         const stats = fs.statSync(fullPath);
-        if (
-          stats.mtimeMs > bestMtime ||
-          (stats.mtimeMs === bestMtime && (!bestFile || fullPath > bestFile))
-        ) {
-          bestMtime = stats.mtimeMs;
-          bestFile = fullPath;
-        }
+        files.push({
+          name: entry.name,
+          fullPath,
+          sizeBytes: stats.size,
+          mtimeMs: stats.mtimeMs,
+          modifiedAt: new Date(stats.mtimeMs).toISOString(),
+        });
       } catch {
         // Ignore transient stat error during rotation
       }
     }
-    return bestFile;
+
+    // Sort newest first by mtime, then filename descending
+    files.sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
+    return files;
   } catch {
-    return null;
+    return [];
   }
+}
+
+function findLatestMatchingFile(dirPath, nameRegex) {
+  const files = findMatchingFilesInDir(dirPath, nameRegex);
+  return files.length > 0 ? files[0].fullPath : null;
 }
 
 function isWebServerLogPath(filePath) {
   const lower = filePath.toLowerCase();
   return lower.includes('/nginx/') || lower.includes('/apache2/') || lower.includes('/httpd/');
+}
+
+function resolveConfiguredTargets(customPath) {
+  const isEnabled = (process.env.ENABLE_SYSTEM_LOG_TAILER || 'false').toLowerCase() === 'true';
+  if (!isEnabled) return [];
+
+  const configuredMulti = (process.env.LOG_FILE_PATHS || '')
+    .split(',')
+    .map(parseLogTargetEntry)
+    .filter(Boolean);
+
+  if (configuredMulti.length > 0) return configuredMulti;
+
+  const singleRaw = customPath || process.env.LOG_FILE_PATH;
+  if (singleRaw) {
+    const parsed = parseLogTargetEntry(singleRaw);
+    if (parsed) return [parsed];
+  }
+
+  const fallbackPaths = [
+    '/var/log/nginx/access.log',
+    '/var/log/nginx/other_vhosts_access.log',
+    '/var/log/apache2/access.log',
+    '/var/log/httpd/access_log',
+  ];
+  for (const p of fallbackPaths) {
+    if (fs.existsSync(p)) {
+      return [{ label: 'nginx', filePath: p }];
+    }
+  }
+  return [];
 }
 
 function createSingleFileTailer(filePath, sourceLabel, io, startFromBeginning = false) {
@@ -345,7 +452,7 @@ function startRotatingLogTailer(globPath, sourceLabel, io) {
     return false;
   }
 
-  const nameRegex = globBaseNameToRegex(basePattern);
+  const nameRegex = globBaseNameToRegex(basePattern, false);
   let activeFilePath = findLatestMatchingFile(dirPath, nameRegex);
   let stopCurrentTailer = null;
 
@@ -366,7 +473,6 @@ function startRotatingLogTailer(globPath, sourceLabel, io) {
       }
       activeFilePath = latest;
       console.log(`[Log Watcher Sentinel] Switched [${sourceLabel}] to rotated log file: ${activeFilePath}`);
-      // Read from byte 0 when switching to a newly rotated daily file
       stopCurrentTailer = createSingleFileTailer(activeFilePath, sourceLabel, io, hadPreviousFile);
     }
   }
@@ -379,7 +485,6 @@ function startRotatingLogTailer(globPath, sourceLabel, io) {
     console.warn(`[Log Watcher Warning] Could not watch directory [${sourceLabel}] ${dirPath}: ${err.message}`);
   }
 
-  // Periodic fallback check (handles midnight rotation even if fs.watch misses an event)
   setInterval(checkForNewerFile, 15000);
   return true;
 }
@@ -387,6 +492,7 @@ function startRotatingLogTailer(globPath, sourceLabel, io) {
 export function autoDetectAndStartLogTailer(customPath, io) {
   const isEnabled = (process.env.ENABLE_SYSTEM_LOG_TAILER || 'false').toLowerCase() === 'true';
   if (!isEnabled) {
+    configuredTargetsCache = [];
     activeLogSource = 'Application Stream (System access log tailing disabled for multi-app isolation)';
     console.log(
       '[Log Watcher] System access log tailing disabled (ENABLE_SYSTEM_LOG_TAILER != true). Monitoring application traffic only.'
@@ -394,35 +500,8 @@ export function autoDetectAndStartLogTailer(customPath, io) {
     return;
   }
 
-  const configuredMulti = (process.env.LOG_FILE_PATHS || '')
-    .split(',')
-    .map(parseLogTargetEntry)
-    .filter(Boolean);
-
-  let targets = configuredMulti;
-
-  if (targets.length === 0) {
-    const singleRaw = customPath || process.env.LOG_FILE_PATH;
-    if (singleRaw) {
-      const parsed = parseLogTargetEntry(singleRaw);
-      if (parsed) targets = [parsed];
-    }
-  }
-
-  if (targets.length === 0) {
-    const fallbackPaths = [
-      '/var/log/nginx/access.log',
-      '/var/log/nginx/other_vhosts_access.log',
-      '/var/log/apache2/access.log',
-      '/var/log/httpd/access_log',
-    ];
-    for (const p of fallbackPaths) {
-      if (fs.existsSync(p)) {
-        targets = [{ label: 'nginx', filePath: p }];
-        break;
-      }
-    }
-  }
+  const targets = resolveConfiguredTargets(customPath);
+  configuredTargetsCache = targets;
 
   const activeTargets = [];
   for (const target of targets) {
@@ -460,6 +539,258 @@ function startLogTailerFile(filePath, sourceLabel, io) {
     console.warn(`[Log Watcher Warning] Could not tail [${sourceLabel}] ${filePath}: ${err.message}`);
     return false;
   }
+}
+
+/**
+ * Lists allowlisted historical log files across configured targets (safe against path traversal).
+ */
+export function listHistoricalLogFiles() {
+  const targets = configuredTargetsCache.length > 0 ? configuredTargetsCache : resolveConfiguredTargets();
+  return targets.map((target) => {
+    const dirPath = path.dirname(target.filePath);
+    const regex = buildHistoricalNameRegex(target.filePath);
+    const files = findMatchingFilesInDir(dirPath, regex).map((f) => ({
+      name: f.name,
+      sizeBytes: f.sizeBytes,
+      modifiedAt: f.modifiedAt,
+    }));
+    return {
+      source: target.label,
+      pattern: target.filePath,
+      files,
+    };
+  });
+}
+
+function matchesFilter(entry, { qLower, levelFilter, fromMs, toMs }) {
+  if (fromMs !== null || toMs !== null) {
+    const tsMs = new Date(entry.timestamp).getTime();
+    if (!Number.isNaN(tsMs)) {
+      if (fromMs !== null && tsMs < fromMs) return false;
+      if (toMs !== null && tsMs > toMs) return false;
+    }
+  }
+
+  if (levelFilter && levelFilter !== 'ALL') {
+    const sc = Number(entry.statusCode) || 0;
+    const methodUpper = (entry.method || '').toUpperCase();
+    if (levelFilter === '2xx' && (sc < 200 || sc >= 300)) return false;
+    if (levelFilter === '4xx' && (sc < 400 || sc >= 500)) return false;
+    if (levelFilter === '5xx' && sc < 500) return false;
+    if (['INFO', 'WARN', 'ERROR', 'DEBUG', 'GET', 'POST', 'PUT', 'DELETE'].includes(levelFilter) && methodUpper !== levelFilter) {
+      return false;
+    }
+  }
+
+  if (qLower) {
+    const haystack = `${entry.path || ''} ${entry.detail || ''} ${entry.ip || ''} ${entry.method || ''} ${entry.statusCode || ''} ${entry.source || ''}`.toLowerCase();
+    if (!haystack.includes(qLower)) return false;
+  }
+
+  return true;
+}
+
+async function scanFileLines(fileInfo, sourceLabel, filterOpts, maxLinesRemaining, maxBytesRemaining) {
+  const isWebServerAccessLog = isWebServerLogPath(fileInfo.fullPath);
+  const matches = [];
+  let scannedLines = 0;
+  let scannedBytes = 0;
+  let truncated = false;
+
+  const stream = fs.createReadStream(fileInfo.fullPath, { encoding: 'utf8' });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      scannedLines++;
+      scannedBytes += Buffer.byteLength(line, 'utf8') + 1;
+
+      if (scannedLines > maxLinesRemaining || scannedBytes > maxBytesRemaining) {
+        truncated = true;
+        break;
+      }
+
+      const parsed = parseLogLine(line, sourceLabel, {
+        isWebServerAccessLog,
+        fallbackTimestamp: fileInfo.modifiedAt,
+      });
+      if (!parsed) continue;
+
+      if (matchesFilter(parsed, filterOpts)) {
+        matches.push({
+          ...parsed,
+          file: fileInfo.name,
+        });
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  return { matches, scannedLines, scannedBytes, truncated };
+}
+
+/**
+ * Queries historical disk log files and/or MongoDB RequestLog safely with bounded memory and scan limits.
+ */
+export async function queryHistoricalLogs({
+  source = 'ALL',
+  file = 'latest',
+  q = '',
+  level = 'ALL',
+  from = '',
+  to = '',
+  limit = 200,
+  order = 'desc',
+} = {}) {
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
+  const safeOrder = order === 'asc' ? 'asc' : 'desc';
+  const qLower = typeof q === 'string' ? q.trim().toLowerCase() : '';
+  const levelFilter = typeof level === 'string' ? level.trim() : 'ALL';
+
+  const fromDate = from ? new Date(from) : null;
+  const toDate = to ? new Date(to) : null;
+  const fromMs = fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate.getTime() : null;
+  const toMs = toDate && !Number.isNaN(toDate.getTime()) ? toDate.getTime() : null;
+
+  // Special source: MongoDB persisted HTTP RequestLogs
+  if (source === 'sentinel-http-db') {
+    if (!getDBStatus().isConnected) {
+      return {
+        items: [],
+        filesScanned: [],
+        scannedLines: 0,
+        truncated: false,
+        note: 'MongoDB is disconnected.',
+      };
+    }
+
+    const dbQuery = {};
+    if (fromMs !== null || toMs !== null) {
+      dbQuery.timestamp = {};
+      if (fromMs !== null) dbQuery.timestamp.$gte = new Date(fromMs);
+      if (toMs !== null) dbQuery.timestamp.$lte = new Date(toMs);
+    }
+
+    if (levelFilter === '2xx') dbQuery.statusCode = { $gte: 200, $lt: 300 };
+    else if (levelFilter === '4xx') dbQuery.statusCode = { $gte: 400, $lt: 500 };
+    else if (levelFilter === '5xx' || levelFilter === 'ERROR') dbQuery.statusCode = { $gte: 500 };
+    else if (levelFilter === 'WARN') dbQuery.statusCode = { $gte: 400, $lt: 500 };
+    else if (['GET', 'POST', 'PUT', 'DELETE'].includes(levelFilter)) dbQuery.method = levelFilter;
+
+    if (qLower) {
+      const escaped = qLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      dbQuery.$or = [{ path: regex }, { ip: regex }, { method: regex }];
+    }
+
+    const docs = await RequestLog.find(dbQuery)
+      .sort({ timestamp: safeOrder === 'asc' ? 1 : -1 })
+      .limit(safeLimit)
+      .lean();
+
+    const items = docs.map((d) => ({
+      id: d._id.toString(),
+      ip: d.ip,
+      method: d.method,
+      path: d.path,
+      detail: '',
+      statusCode: d.statusCode,
+      responseTimeMs: d.responseTimeMs || 0,
+      source: 'sentinel-http-db',
+      file: 'mongodb:requestlogs',
+      isHttp: true,
+      timestamp: d.timestamp ? new Date(d.timestamp).toISOString() : new Date().toISOString(),
+    }));
+
+    return {
+      items,
+      filesScanned: ['mongodb:requestlogs'],
+      scannedLines: items.length,
+      truncated: false,
+    };
+  }
+
+  const targets = configuredTargetsCache.length > 0 ? configuredTargetsCache : resolveConfiguredTargets();
+  const selectedTargets = source === 'ALL' ? targets : targets.filter((t) => t.label === source);
+
+  const fileCandidates = [];
+  for (const target of selectedTargets) {
+    const dirPath = path.dirname(target.filePath);
+    const regex = buildHistoricalNameRegex(target.filePath);
+    let matchedFiles = findMatchingFilesInDir(dirPath, regex);
+
+    if (fromMs !== null) {
+      matchedFiles = matchedFiles.filter((f) => f.mtimeMs >= fromMs);
+    }
+
+    if (file && file !== 'all' && file !== 'latest') {
+      const safeFileName = path.basename(file);
+      matchedFiles = matchedFiles.filter((f) => f.name === safeFileName);
+    } else if (file === 'latest' && matchedFiles.length > 0) {
+      matchedFiles = [matchedFiles[0]];
+    }
+
+    for (const mf of matchedFiles) {
+      fileCandidates.push({ ...mf, sourceLabel: target.label });
+    }
+  }
+
+  if (safeOrder === 'desc') {
+    fileCandidates.sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
+  } else {
+    fileCandidates.sort((a, b) => a.mtimeMs - b.mtimeMs || a.name.localeCompare(b.name));
+  }
+
+  const MAX_FILES_PER_QUERY = 25;
+  const MAX_SCAN_LINES = 60000;
+  const MAX_SCAN_BYTES = 25 * 1024 * 1024;
+
+  let remainingLines = MAX_SCAN_LINES;
+  let remainingBytes = MAX_SCAN_BYTES;
+  let totalScannedLines = 0;
+  let truncated = false;
+  const filesScanned = [];
+  const collected = [];
+
+  for (const fileInfo of fileCandidates.slice(0, MAX_FILES_PER_QUERY)) {
+    if (remainingLines <= 0 || remainingBytes <= 0 || collected.length >= safeLimit) {
+      if (collected.length < safeLimit) truncated = true;
+      break;
+    }
+
+    const res = await scanFileLines(
+      fileInfo,
+      fileInfo.sourceLabel,
+      { qLower, levelFilter, fromMs, toMs },
+      remainingLines,
+      remainingBytes
+    );
+
+    filesScanned.push(`${fileInfo.sourceLabel}:${fileInfo.name}`);
+    totalScannedLines += res.scannedLines;
+    remainingLines -= res.scannedLines;
+    remainingBytes -= res.scannedBytes;
+    if (res.truncated) truncated = true;
+
+    const orderedMatches = safeOrder === 'desc' ? res.matches.reverse() : res.matches;
+    for (const item of orderedMatches) {
+      collected.push(item);
+      if (collected.length >= safeLimit) break;
+    }
+  }
+
+  if (fileCandidates.length > MAX_FILES_PER_QUERY && collected.length < safeLimit) {
+    truncated = true;
+  }
+
+  return {
+    items: collected,
+    filesScanned,
+    scannedLines: totalScannedLines,
+    truncated,
+  };
 }
 
 export function getRecentLogs() {
