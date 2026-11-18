@@ -90,7 +90,7 @@ export function isOriginAllowed(origin, requestHost) {
       return true;
     }
     if (process.env.NODE_ENV !== 'production') {
-      const devHosts = new Set(['localhost:3000', '127.0.0.1:3000', 'localhost:5000', '127.0.0.1:5000']);
+      const devHosts = new Set(['localhost:3000', '127.0.0.1:3000', 'localhost:3004', '127.0.0.1:3004']);
       if (devHosts.has(parsed.host)) {
         return true;
       }

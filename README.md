@@ -93,18 +93,26 @@ Create a new service file at `/etc/systemd/system/ubuntu-monitor.service`:
 
 ```ini
 [Unit]
-Description=Ubuntu Realtime Server Monitoring Service
-After=network.target mongodb.service
+Description=Webstring Realtime Server Sentinel Service
+After=network-online.target mongod.service
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/ubuntu-monitor
-ExecStart=/usr/bin/node /opt/ubuntu-monitor/server/index.js
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/webstring
+EnvironmentFile=/var/www/webstring/.env
+Environment=PATH=/opt/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3004
+ExecStart=/opt/node20/bin/node /var/www/webstring/server/index.js
 Restart=always
 RestartSec=10
-Environment=NODE_ENV=production
-Environment=PORT=5000
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
@@ -123,31 +131,39 @@ Create an Nginx configuration file at `/etc/nginx/sites-available/ubuntu-monitor
 ```nginx
 server {
     listen 80;
-    server_name your-server-ip-or-domain;
+    server_name monitor.your-domain.com;
+
+    access_log /var/log/nginx/monitor-access.log;
 
     # Static Built Frontend
     location / {
-        root /opt/ubuntu-monitor/dist;
+        root /var/www/webstring/dist;
         try_files $uri $uri/ /index.html;
     }
 
     # REST API Proxy
     location /api/ {
-        proxy_pass http://127.0.0.1:5000/api/;
+        proxy_pass http://127.0.0.1:3004/api/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # WebSockets Proxy for Realtime Telemetry
     location /socket.io/ {
-        proxy_pass http://127.0.0.1:5000/socket.io/;
+        proxy_pass http://127.0.0.1:3004/socket.io/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 }
 ```

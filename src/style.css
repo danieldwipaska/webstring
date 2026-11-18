@@ -525,6 +525,10 @@ a:hover {
 .log-method.POST { color: #10b981; }
 .log-method.PUT { color: #f59e0b; }
 .log-method.DELETE { color: #ef4444; }
+.log-method.INFO { color: #38bdf8; }
+.log-method.WARN { color: #f59e0b; }
+.log-method.ERROR { color: #ef4444; }
+.log-method.DEBUG { color: #94a3b8; }
 
 .log-status {
   font-weight: 700;
