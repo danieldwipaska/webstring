@@ -1,20 +1,14 @@
 const API_BASE = '/api';
 
-export function getAuthToken() {
-  return localStorage.getItem('token');
-}
-
-export function setAuthToken(token) {
-  if (token) {
-    localStorage.setItem('token', token);
-  } else {
-    localStorage.removeItem('token');
-  }
-}
-
 export function getCurrentUser() {
-  const user = localStorage.getItem('user');
-  return user ? JSON.parse(user) : null;
+  const raw = localStorage.getItem('user');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    localStorage.removeItem('user');
+    return null;
+  }
 }
 
 export function setCurrentUser(user) {
@@ -26,21 +20,16 @@ export function setCurrentUser(user) {
 }
 
 export async function fetchApi(endpoint, options = {}) {
-  const token = getAuthToken();
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers,
-      credentials: 'include', // Automatically send and receive HttpOnly Cookies with requests
+      credentials: 'include', // Strictly use HttpOnly cookies for auth
     });
 
     const data = await response.json();
@@ -61,10 +50,10 @@ export async function checkAuthStatus() {
       setCurrentUser(res.user);
       return res.user;
     }
-    return null;
-  } catch (err) {
     setCurrentUser(null);
-    setAuthToken(null);
+    return null;
+  } catch {
+    setCurrentUser(null);
     return null;
   }
 }
@@ -75,7 +64,6 @@ export async function logoutUser() {
   } catch (err) {
     console.warn('Logout request error:', err.message);
   } finally {
-    setAuthToken(null);
     setCurrentUser(null);
   }
 }
@@ -97,8 +85,6 @@ export async function updateAccountSettings(data) {
   });
   if (res.success && res.user) {
     setCurrentUser(res.user);
-    if (res.token) setAuthToken(res.token);
   }
   return res;
 }
-

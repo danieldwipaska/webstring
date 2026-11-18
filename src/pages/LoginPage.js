@@ -1,4 +1,5 @@
-import { fetchApi, setAuthToken, setCurrentUser } from '../utils/api.js';
+import { fetchApi, setCurrentUser } from '../utils/api.js';
+import { initSocket } from '../utils/socket.js';
 
 export function renderLoginPage(navigate) {
   return `
@@ -62,8 +63,8 @@ export function initLoginPage(navigate) {
         });
 
         if (res.success) {
-          setAuthToken(res.token);
           setCurrentUser(res.user);
+          initSocket();
           navigate('dashboard');
         } else {
           throw new Error(res.message || 'Login failed');

@@ -7,8 +7,9 @@ import { renderHistoryPage, initHistoryPage } from './pages/HistoryPage.js';
 import { renderSecurityPage, initSecurityPage } from './pages/SecurityPage.js';
 import { renderRealtimeLogsPage, initRealtimeLogsPage } from './pages/RealtimeLogsPage.js';
 import { renderSettingsPage, initSettingsPage } from './pages/SettingsPage.js';
-import { initSocket } from './utils/socket.js';
+import { initSocket, disconnectSocket, setSocketStatusHandler } from './utils/socket.js';
 import { checkAuthStatus } from './utils/api.js';
+import { escapeHtml } from './utils/html.js';
 
 let currentRoute = 'landing';
 let activePageCleanup = null;
@@ -78,7 +79,7 @@ function renderPage(route, authNoticeMessage = null) {
         authNoticeMessage
           ? `<div class="container" style="max-width: 600px; margin-bottom: 1.5rem;">
               <div style="padding: 0.75rem 1rem; border-radius: var(--radius-md); background-color: #451a03; color: #fdba74; border: 1px solid #9a3412; font-size: 0.9rem;">
-                ⚠️ ${authNoticeMessage}
+                ⚠️ ${escapeHtml(authNoticeMessage)}
               </div>
             </div>`
           : ''
@@ -118,8 +119,7 @@ function renderPage(route, authNoticeMessage = null) {
   }
 }
 
-// Initialize Socket.io Connection & Status Indicator Dot
-initSocket((isConnected) => {
+function updateLiveStatusIndicator(isConnected) {
   const dot = document.getElementById('live-status-dot');
   const text = document.getElementById('live-status-text');
 
@@ -129,13 +129,20 @@ initSocket((isConnected) => {
       if (text) text.textContent = 'LIVE';
     } else {
       dot.className = 'status-dot offline';
-      if (text) text.textContent = 'RECONNECTING';
+      if (text) text.textContent = 'OFFLINE';
     }
   }
-});
+}
+
+setSocketStatusHandler(updateLiveStatusIndicator);
 
 // App Startup
 document.addEventListener('DOMContentLoaded', async () => {
-  await checkAuthStatus();
+  const user = await checkAuthStatus();
+  if (user) {
+    initSocket();
+  } else {
+    disconnectSocket();
+  }
   navigate('landing');
 });

@@ -3,15 +3,19 @@ import { SecurityAlert } from '../models/SecurityAlert.js';
 
 // In-Memory storage for rate limits
 const rateLimitStore = new Map();
+const MAX_RATE_LIMIT_ENTRIES = 10000;
 
-// Periodic cleanup of expired rate limit records (runs every 5 minutes)
-setInterval(() => {
-  const now = Date.now();
+function cleanupExpiredEntries(now) {
   for (const [key, record] of rateLimitStore.entries()) {
     if (now > record.resetTime) {
       rateLimitStore.delete(key);
     }
   }
+}
+
+// Periodic cleanup of expired rate limit records (runs every 5 minutes)
+setInterval(() => {
+  cleanupExpiredEntries(Date.now());
 }, 5 * 60 * 1000);
 
 /**
@@ -33,13 +37,22 @@ export function createRateLimiter(options = {}) {
   } = options;
 
   return async (req, res, next) => {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
     const key = `${keyPrefix}:${ip}`;
     const now = Date.now();
 
     let record = rateLimitStore.get(key);
 
     if (!record || now > record.resetTime) {
+      if (rateLimitStore.size >= MAX_RATE_LIMIT_ENTRIES) {
+        cleanupExpiredEntries(now);
+        if (rateLimitStore.size >= MAX_RATE_LIMIT_ENTRIES) {
+          const oldestKey = rateLimitStore.keys().next().value;
+          if (oldestKey !== undefined) {
+            rateLimitStore.delete(oldestKey);
+          }
+        }
+      }
       record = {
         count: 1,
         resetTime: now + windowMs,

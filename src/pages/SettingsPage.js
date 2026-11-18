@@ -1,4 +1,5 @@
 import { getCurrentUser, updateAccountSettings } from '../utils/api.js';
+import { escapeHtml } from '../utils/html.js';
 
 export function renderSettingsPage() {
   const currentUser = getCurrentUser() || {};
@@ -27,15 +28,15 @@ export function renderSettingsPage() {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.9rem;">
           <div>
             <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Current Username</div>
-            <div class="mono" style="font-weight: 600;" id="display-current-username">${currentUser.username || '-'}</div>
+            <div class="mono" style="font-weight: 600;" id="display-current-username">${escapeHtml(currentUser.username || '-')}</div>
           </div>
           <div>
             <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Registered Email</div>
-            <div class="mono" style="font-weight: 600;">${currentUser.email || '-'}</div>
+            <div class="mono" style="font-weight: 600;">${escapeHtml(currentUser.email || '-')}</div>
           </div>
           <div>
             <div style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.2rem;">Role</div>
-            <div class="mono" style="font-weight: 600; text-transform: uppercase; color: var(--color-accent);">${currentUser.role || 'admin'}</div>
+            <div class="mono" style="font-weight: 600; text-transform: uppercase; color: var(--color-accent);">${escapeHtml(currentUser.role || 'admin')}</div>
           </div>
         </div>
       </div>
@@ -54,7 +55,7 @@ export function renderSettingsPage() {
         <form id="update-username-form">
           <div class="form-group">
             <label class="form-label" for="new-username">New Username</label>
-            <input type="text" id="new-username" class="form-input" value="${currentUser.username || ''}" required placeholder="Enter new username" />
+            <input type="text" id="new-username" class="form-input" value="${escapeHtml(currentUser.username || '')}" required placeholder="Enter new username" />
           </div>
           <button type="submit" class="btn btn-primary" id="btn-save-username">Update Username</button>
         </form>
@@ -73,16 +74,16 @@ export function renderSettingsPage() {
         </div>
         <form id="update-password-form">
           <div class="form-group">
-            <label class="form-label" for="current-password">Current Password (Confirmation)</label>
-            <input type="password" id="current-password" class="form-input" placeholder="Enter current password" />
+            <label class="form-label" for="current-password">Current Password (Required)</label>
+            <input type="password" id="current-password" class="form-input" placeholder="Enter current password" required />
           </div>
           <div class="form-group">
             <label class="form-label" for="new-password">New Password</label>
-            <input type="password" id="new-password" class="form-input" placeholder="At least 6 characters" required minlength="6" />
+            <input type="password" id="new-password" class="form-input" placeholder="At least 8 characters" required minlength="8" />
           </div>
           <div class="form-group">
             <label class="form-label" for="confirm-password">Confirm New Password</label>
-            <input type="password" id="confirm-password" class="form-input" placeholder="Re-type new password" required minlength="6" />
+            <input type="password" id="confirm-password" class="form-input" placeholder="Re-type new password" required minlength="8" />
           </div>
           <button type="submit" class="btn btn-primary" id="btn-save-password">Update Password</button>
         </form>
@@ -103,12 +104,12 @@ export function initSettingsPage(navigate) {
       alertEl.style.backgroundColor = '#450a0a';
       alertEl.style.color = '#fca5a5';
       alertEl.style.border = '1px solid #991b1b';
-      alertEl.innerHTML = `⚠️ ${message}`;
+      alertEl.textContent = `⚠️ ${message}`;
     } else {
       alertEl.style.backgroundColor = '#064e3b';
       alertEl.style.color = '#6ee7b7';
       alertEl.style.border = '1px solid #065f46';
-      alertEl.innerHTML = `✅ ${message}`;
+      alertEl.textContent = `✅ ${message}`;
     }
   }
 
@@ -160,13 +161,18 @@ export function initSettingsPage(navigate) {
       const confirmPassword = document.getElementById('confirm-password').value;
       const submitBtn = document.getElementById('btn-save-password');
 
+      if (!currentPassword) {
+        showAlert('Current password is required.', true);
+        return;
+      }
+
       if (newPassword !== confirmPassword) {
         showAlert('Password confirmation does not match new password.', true);
         return;
       }
 
-      if (newPassword.length < 6) {
-        showAlert('New password must be at least 6 characters.', true);
+      if (newPassword.length < 8) {
+        showAlert('New password must be at least 8 characters.', true);
         return;
       }
 

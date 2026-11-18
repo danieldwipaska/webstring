@@ -1,26 +1,46 @@
 import { io } from 'socket.io-client';
 
 let socket = null;
+let statusChangeHandler = null;
 const listeners = new Map();
 
-export function initSocket(onStatusChange) {
-  if (socket) return socket;
+export function setSocketStatusHandler(handler) {
+  statusChangeHandler = handler;
+}
 
-  // Auto-connect to current location (handled by Vite proxy in dev or Nginx in prod)
+export function initSocket(onStatusChange) {
+  if (onStatusChange) {
+    statusChangeHandler = onStatusChange;
+  }
+
+  if (socket) {
+    if (!socket.connected) {
+      socket.connect();
+    }
+    return socket;
+  }
+
+  // Auto-connect to current location with HttpOnly cookie credentials
   socket = io({
+    withCredentials: true,
     reconnection: true,
-    reconnectionDelay: 1000,
+    reconnectionDelay: 1500,
     reconnectionAttempts: Infinity,
   });
 
   socket.on('connect', () => {
     console.log('[WebSocket Client] Connected to server.');
-    if (onStatusChange) onStatusChange(true);
+    if (statusChangeHandler) statusChangeHandler(true);
   });
 
   socket.on('disconnect', () => {
     console.log('[WebSocket Client] Disconnected.');
-    if (onStatusChange) onStatusChange(false);
+    if (statusChangeHandler) statusChangeHandler(false);
+  });
+
+  socket.on('connect_error', (err) => {
+    console.warn('[WebSocket Client] Connection rejected or failed:', err.message);
+    if (statusChangeHandler) statusChangeHandler(false);
   });
 
   socket.on('metrics:update', (data) => {
@@ -36,6 +56,20 @@ export function initSocket(onStatusChange) {
   });
 
   return socket;
+}
+
+export function disconnectSocket() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  if (statusChangeHandler) {
+    statusChangeHandler(false);
+  }
+}
+
+export function isSocketConnected() {
+  return Boolean(socket && socket.connected);
 }
 
 export function subscribeSocketEvent(event, callback) {

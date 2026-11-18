@@ -1,4 +1,5 @@
 import { subscribeSocketEvent } from '../utils/socket.js';
+import { escapeHtml } from '../utils/html.js';
 
 let currentSortKey = 'cpu'; // 'cpu' or 'mem'
 let currentSortOrder = 'desc'; // 'desc' or 'asc'
@@ -300,11 +301,11 @@ function renderProcessesTable(processes) {
     .map(
       (p) => `
     <tr>
-      <td class="mono">${p.pid}</td>
-      <td class="mono" style="font-weight: 600;">${p.name}</td>
-      <td>${p.user}</td>
-      <td class="mono" style="color: ${p.cpu > 50 ? 'var(--color-danger)' : currentSortKey === 'cpu' ? 'var(--color-accent)' : 'var(--text-main)'}">${p.cpu}%</td>
-      <td class="mono" style="color: ${currentSortKey === 'mem' ? 'var(--color-accent)' : 'var(--text-muted)'}">${p.mem}%</td>
+      <td class="mono">${escapeHtml(p.pid)}</td>
+      <td class="mono" style="font-weight: 600;">${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.user)}</td>
+      <td class="mono" style="color: ${p.cpu > 50 ? 'var(--color-danger)' : currentSortKey === 'cpu' ? 'var(--color-accent)' : 'var(--text-main)'}">${escapeHtml(p.cpu)}%</td>
+      <td class="mono" style="color: ${currentSortKey === 'mem' ? 'var(--color-accent)' : 'var(--text-muted)'}">${escapeHtml(p.mem)}%</td>
     </tr>
   `
     )

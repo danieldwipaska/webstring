@@ -1,4 +1,5 @@
-import { fetchApi, getRegisterStatus, setAuthToken, setCurrentUser } from '../utils/api.js';
+import { fetchApi, getRegisterStatus, setCurrentUser } from '../utils/api.js';
+import { initSocket } from '../utils/socket.js';
 
 export function renderRegisterPage(navigate) {
   return `
@@ -34,7 +35,7 @@ export function renderRegisterPage(navigate) {
 
           <div class="form-group">
             <label class="form-label" for="password">Password</label>
-            <input type="password" id="password" class="form-input" placeholder="At least 6 characters" required minlength="6" />
+            <input type="password" id="password" class="form-input" placeholder="At least 8 characters" required minlength="8" />
           </div>
 
           <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;" id="register-submit-btn">Create Account</button>
@@ -72,7 +73,7 @@ export async function initRegisterPage(navigate) {
   // Check backend single user registration status
   try {
     const status = await getRegisterStatus();
-    if (status.success && !status.canRegister) {
+    if (!status.canRegister) {
       if (form) form.style.display = 'none';
       if (loginLinkFooter) loginLinkFooter.style.display = 'none';
       if (disabledContainer) disabledContainer.style.display = 'block';
@@ -101,8 +102,8 @@ export async function initRegisterPage(navigate) {
         });
 
         if (res.success) {
-          setAuthToken(res.token);
           setCurrentUser(res.user);
+          initSocket();
           navigate('dashboard');
         } else {
           throw new Error(res.message || 'Registration failed');

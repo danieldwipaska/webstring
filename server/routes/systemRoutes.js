@@ -5,8 +5,8 @@ import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// GET /api/system/status (Public or protected)
-router.get('/status', (req, res) => {
+// GET /api/system/status (Protected - avoids leaking internal DB/runtime details publicly)
+router.get('/status', protect, (req, res) => {
   const memoryUsage = process.memoryUsage();
   res.json({
     success: true,
@@ -34,55 +34,72 @@ router.get('/logs', protect, (req, res) => {
   });
 });
 
-// GET /api/system/setup-instructions - Get systemctl and Nginx configs (Public)
+// GET /api/system/setup-instructions - Static hardened deployment templates (no runtime path/port leakage)
 router.get('/setup-instructions', (req, res) => {
-  const port = process.env.PORT || 5000;
-  const appDir = process.cwd();
-
   const systemdService = `[Unit]
-Description=Ubuntu Realtime Server Monitoring Service
-After=network.target mongodb.service
+Description=Webstring Realtime Server Sentinel Service
+After=network-online.target mongod.service
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=${appDir}
-ExecStart=/usr/bin/node ${appDir}/server/index.js
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/webstring
+EnvironmentFile=/var/www/webstring/.env
+Environment=PATH=/opt/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3004
+ExecStart=/opt/node20/bin/node /var/www/webstring/server/index.js
 Restart=always
 RestartSec=10
-Environment=NODE_ENV=production
-Environment=PORT=${port}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target`;
 
   const nginxConfig = `server {
     listen 80;
-    server_name your-server-ip-or-domain;
+    server_name monitor.your-domain.com;
+
+    access_log /var/log/nginx/monitor-access.log;
+
+    # Optional: Restrict dashboard access to trusted admin/VPN IPs only
+    # allow 203.0.113.10;
+    # deny all;
 
     # Serve static built frontend files
     location / {
-        root ${appDir}/dist;
+        root /var/www/webstring/dist;
         try_files $uri $uri/ /index.html;
     }
 
     # Proxy REST API requests
     location /api/ {
-        proxy_pass http://127.0.0.1:${port}/api/;
+        proxy_pass http://127.0.0.1:3004/api/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Proxy Realtime WebSocket requests
     location /socket.io/ {
-        proxy_pass http://127.0.0.1:${port}/socket.io/;
+        proxy_pass http://127.0.0.1:3004/socket.io/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 }`;
 
@@ -93,20 +110,21 @@ WantedBy=multi-user.target`;
       nginxConfig,
       cliCommands: [
         '# 1. Install dependencies & build frontend',
-        'npm install',
-        'npm run build',
+        'cd /var/www/webstring && npm ci && npm run build',
         '',
-        '# 2. Setup Systemd Service',
-        'sudo nano /etc/systemd/system/ubuntu-monitor.service',
+        '# 2. Configure .env with a strong 64-char random JWT_SECRET',
+        'openssl rand -hex 32',
+        '',
+        '# 3. Setup Systemd Service',
+        'sudo cp deployment/ubuntu-monitor.service /etc/systemd/system/ubuntu-monitor.service',
         'sudo systemctl daemon-reload',
         'sudo systemctl enable --now ubuntu-monitor',
-        'sudo systemctl status ubuntu-monitor',
         '',
-        '# 3. Setup Nginx Reverse Proxy',
-        'sudo nano /etc/nginx/sites-available/ubuntu-monitor',
+        '# 4. Setup Isolated Nginx Subdomain & HTTPS (Certbot)',
+        'sudo cp deployment/nginx-monitor.conf /etc/nginx/sites-available/ubuntu-monitor',
         'sudo ln -s /etc/nginx/sites-available/ubuntu-monitor /etc/nginx/sites-enabled/',
-        'sudo nginx -t',
-        'sudo systemctl reload nginx',
+        'sudo nginx -t && sudo systemctl reload nginx',
+        'sudo certbot --nginx -d monitor.your-domain.com',
       ],
     },
   });

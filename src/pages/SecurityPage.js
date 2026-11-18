@@ -1,5 +1,6 @@
 import { fetchApi } from '../utils/api.js';
 import { subscribeSocketEvent } from '../utils/socket.js';
+import { escapeHtml } from '../utils/html.js';
 
 export function renderSecurityPage() {
   return `
@@ -126,42 +127,53 @@ async function loadSecurityAlerts() {
       }
 
       tbody.innerHTML = alerts
-        .map(
-          (a) => `
+        .map((a) => {
+          const severity = escapeHtml(a.severity);
+          const type = escapeHtml(a.type);
+          const title = escapeHtml(a.title);
+          const description = escapeHtml(a.description);
+          const sourceIp = escapeHtml(a.sourceIp);
+          const status = escapeHtml(a.status);
+          const alertId = escapeHtml(a._id);
+          return `
         <tr>
-          <td class="mono" style="font-size: 0.8rem;">${new Date(a.timestamp).toLocaleString()}</td>
-          <td><span class="severity-badge severity-${a.severity}">${a.severity}</span></td>
-          <td class="mono" style="font-size: 0.8rem; font-weight: 600;">${a.type}</td>
-          <td style="font-weight: 600;">${a.title}</td>
+          <td class="mono" style="font-size: 0.8rem;">${escapeHtml(new Date(a.timestamp).toLocaleString())}</td>
+          <td><span class="severity-badge severity-${severity}">${severity}</span></td>
+          <td class="mono" style="font-size: 0.8rem; font-weight: 600;">${type}</td>
+          <td style="font-weight: 600;">${title}</td>
           <td style="font-size: 0.85rem; max-width: 320px;">
-            ${a.description}
-            <div class="mono" style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">Source: ${a.sourceIp}</div>
+            ${description}
+            <div class="mono" style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">Source: ${sourceIp}</div>
           </td>
           <td>
             <span class="mono" style="font-size: 0.8rem; color: ${a.status === 'active' ? 'var(--color-danger)' : 'var(--text-muted)'};">
-              ${a.status.toUpperCase()}
+              ${status.toUpperCase()}
             </span>
           </td>
           <td>
             ${
-              a.status === 'active'
-                ? `<button class="btn btn-secondary btn-sm" onclick="window.resolveAlert('${a._id || a.title}')">Resolve</button>`
+              a.status === 'active' && a._id
+                ? `<button class="btn btn-secondary btn-sm btn-resolve-alert" data-resolve-id="${alertId}">Resolve</button>`
                 : `<span style="color: var(--text-dim); font-size: 0.8rem;">-</span>`
             }
           </td>
         </tr>
-      `
-        )
+      `;
+        })
         .join('');
 
-      window.resolveAlert = async (id) => {
+      tbody.onclick = async (e) => {
+        const btn = e.target.closest('.btn-resolve-alert');
+        if (!btn) return;
+        const id = btn.getAttribute('data-resolve-id');
+        if (!id) return;
         try {
-          await fetchApi(`/security/alerts/${id}/status`, {
+          await fetchApi(`/security/alerts/${encodeURIComponent(id)}/status`, {
             method: 'PATCH',
             body: JSON.stringify({ status: 'resolved' }),
           });
           loadSecurityAlerts();
-        } catch (err) {
+        } catch {
           loadSecurityAlerts();
         }
       };

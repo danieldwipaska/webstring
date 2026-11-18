@@ -4,6 +4,16 @@ import { getDBStatus } from '../config/db.js';
 // Cooldown tracker to avoid spamming duplicate alerts (e.g. 5 minutes per alert type)
 const alertCooldowns = new Map();
 const COOLDOWN_MS = 5 * 60 * 1000;
+const MAX_COOLDOWN_ENTRIES = 2000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of alertCooldowns.entries()) {
+    if (now - ts > COOLDOWN_MS) {
+      alertCooldowns.delete(key);
+    }
+  }
+}, COOLDOWN_MS);
 
 // High CPU sustained counter
 let highCpuCount = 0;
@@ -104,8 +114,9 @@ export async function checkAnomalies(metrics, io) {
 // Check for suspicious request rates or brute force traffic (called from log watcher or middleware)
 export async function reportTrafficAnomaly(ip, requestCount, path, io) {
   const alertsToEmit = [];
-  
-  if (requestCount > 60) { // >60 requests per 10 seconds from single IP
+  const threshold = parseInt(process.env.TRAFFIC_ANOMALY_THRESHOLD || '120', 10);
+
+  if (requestCount > threshold) {
     triggerAlert(
       alertsToEmit,
       'TRAFFIC_DDoS_SPIKE',
@@ -137,6 +148,10 @@ function triggerAlert(list, type, severity, title, description, sourceIp, metada
   const now = Date.now();
 
   if (now - lastAlertTime > COOLDOWN_MS) {
+    if (alertCooldowns.size >= MAX_COOLDOWN_ENTRIES) {
+      const oldestKey = alertCooldowns.keys().next().value;
+      if (oldestKey !== undefined) alertCooldowns.delete(oldestKey);
+    }
     alertCooldowns.set(cooldownKey, now);
     list.push({
       type,
