@@ -1,7 +1,10 @@
 import { getCurrentUser, logoutUser } from '../utils/api.js';
+import { disconnectSocket, isSocketConnected } from '../utils/socket.js';
+import { escapeHtml } from '../utils/html.js';
 
 export function renderNavbar(activeRoute, navigate) {
   const currentUser = getCurrentUser();
+  const live = isSocketConnected();
 
   const isPerformanceActive = activeRoute === 'dashboard' || activeRoute === 'history';
   const isSecurityActive = activeRoute === 'security' || activeRoute === 'logs';
@@ -62,14 +65,14 @@ export function renderNavbar(activeRoute, navigate) {
 
         <div class="navbar-right">
           <div class="status-indicator">
-            <div id="live-status-dot" class="status-dot"></div>
-            <span id="live-status-text">LIVE</span>
+            <div id="live-status-dot" class="status-dot ${live ? '' : 'offline'}"></div>
+            <span id="live-status-text">${live ? 'LIVE' : currentUser ? 'OFFLINE' : 'STANDBY'}</span>
           </div>
 
           ${
             currentUser
               ? `
-            <span class="mono" style="font-size: 0.85rem; color: var(--text-muted); cursor: pointer;" data-route="settings" title="Account Settings">${currentUser.username}</span>
+            <span class="mono" style="font-size: 0.85rem; color: var(--text-muted); cursor: pointer;" data-route="settings" title="Account Settings">${escapeHtml(currentUser.username)}</span>
             <button class="btn btn-secondary btn-sm ${activeRoute === 'settings' ? 'active' : ''}" data-route="settings" id="settings-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3"></circle>
@@ -108,6 +111,7 @@ export function bindNavbarEvents(navigate) {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await logoutUser();
+      disconnectSocket();
       navigate('login');
     });
   }

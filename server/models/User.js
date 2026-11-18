@@ -24,6 +24,14 @@ const userSchema = new mongoose.Schema({
     enum: ['admin', 'viewer'],
     default: 'admin',
   },
+  singletonKey: {
+    type: String,
+    default: 'SINGLE_ADMIN',
+    unique: true,
+  },
+  passwordChangedAt: {
+    type: Date,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -34,6 +42,9 @@ userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  if (!this.isNew) {
+    this.passwordChangedAt = new Date(Date.now() - 1000);
+  }
   next();
 });
 

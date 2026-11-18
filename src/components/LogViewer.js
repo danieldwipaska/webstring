@@ -1,5 +1,6 @@
 import { fetchApi } from '../utils/api.js';
 import { subscribeSocketEvent } from '../utils/socket.js';
+import { escapeHtml } from '../utils/html.js';
 
 export function renderLogViewerControls() {
   return `
@@ -130,16 +131,21 @@ export function initLogViewer() {
 
     terminalEl.innerHTML = filtered
       .map((l) => {
-        const timeStr = new Date(l.timestamp).toLocaleTimeString();
-        const statusGroup = `s${Math.floor(l.statusCode / 100)}xx`;
+        const timeStr = escapeHtml(new Date(l.timestamp).toLocaleTimeString());
+        const statusCodeNum = Number(l.statusCode) || 0;
+        const statusGroup = `s${Math.floor(statusCodeNum / 100)}xx`;
+        const method = escapeHtml(l.method);
+        const path = escapeHtml(l.path);
+        const ip = escapeHtml(l.ip);
+        const responseTimeMs = Number(l.responseTimeMs) || 0;
         return `
         <div class="log-line">
           <span class="log-time">[${timeStr}]</span>
-          <span class="log-method ${l.method}">${l.method}</span>
-          <span class="log-status ${statusGroup}">${l.statusCode}</span>
-          <span class="log-path">${l.path}</span>
-          <span class="mono" style="color: var(--text-dim); font-size: 0.75rem;">${l.responseTimeMs}ms</span>
-          <span class="mono" style="color: var(--text-dim); font-size: 0.75rem;">${l.ip}</span>
+          <span class="log-method ${method}">${method}</span>
+          <span class="log-status ${statusGroup}">${statusCodeNum}</span>
+          <span class="log-path">${path}</span>
+          <span class="mono" style="color: var(--text-dim); font-size: 0.75rem;">${responseTimeMs}ms</span>
+          <span class="mono" style="color: var(--text-dim); font-size: 0.75rem;">${ip}</span>
         </div>
       `;
       })

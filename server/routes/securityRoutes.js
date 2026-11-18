@@ -1,97 +1,97 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { SecurityAlert } from '../models/SecurityAlert.js';
 import { getDBStatus } from '../config/db.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 
+const ALLOWED_STATUSES = new Set(['active', 'resolved', 'ignored']);
+
 // GET /api/security/alerts - Fetch security threat alerts (Protected)
 router.get('/alerts', protect, async (req, res) => {
-  const { status, limit = 50 } = req.query;
+  if (!getDBStatus().isConnected) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database unavailable. Cannot fetch security alerts.',
+    });
+  }
+
+  const { status, limit } = req.query;
   const query = {};
 
-  if (status) {
+  if (status !== undefined) {
+    if (typeof status !== 'string' || !ALLOWED_STATUSES.has(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status filter.' });
+    }
     query.status = status;
   }
 
-  if (getDBStatus().isConnected) {
-    try {
-      const alerts = await SecurityAlert.find(query)
-        .sort({ timestamp: -1 })
-        .limit(parseInt(limit, 10))
-        .lean();
+  const parsedLimit = parseInt(typeof limit === 'string' ? limit : '50', 10);
+  const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 200) : 50;
 
-      return res.json({
-        success: true,
-        count: alerts.length,
-        data: alerts,
-      });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: error.message });
-    }
-  } else {
-    // In-memory demo alerts sample
-    const sampleAlerts = [
-      {
-        _id: 'demo-alert-1',
-        type: 'SUSPICIOUS_AUTH_ATTEMPT',
-        severity: 'high',
-        title: 'Multiple Failed Login Attempts',
-        description: '5 failed authentication attempts detected from IP 192.168.1.105 within 30 seconds.',
-        sourceIp: '192.168.1.105',
-        status: 'active',
-        timestamp: new Date(Date.now() - 1000 * 60 * 12),
-      },
-      {
-        _id: 'demo-alert-2',
-        type: 'CPU_HIGH_LOAD',
-        severity: 'medium',
-        title: 'CPU Usage Spike (>85%)',
-        description: 'CPU load reached 88.4% due to intensive process execution.',
-        sourceIp: 'System Hardware',
-        status: 'resolved',
-        timestamp: new Date(Date.now() - 1000 * 60 * 45),
-      },
-    ];
+  try {
+    const alerts = await SecurityAlert.find(query)
+      .sort({ timestamp: -1 })
+      .limit(safeLimit)
+      .lean();
 
     return res.json({
       success: true,
-      count: sampleAlerts.length,
-      data: sampleAlerts,
+      count: alerts.length,
+      data: alerts,
     });
+  } catch (error) {
+    console.error('[Security Alerts Fetch Error]', error.message);
+    return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 });
 
 // PATCH /api/security/alerts/:id/status - Update alert status (Protected)
 router.patch('/alerts/:id/status', protect, async (req, res) => {
+  if (!getDBStatus().isConnected) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database unavailable. Cannot update alert status.',
+    });
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Invalid alert ID.' });
+  }
+
   const { status } = req.body;
-  if (!['active', 'resolved', 'ignored'].includes(status)) {
+  if (typeof status !== 'string' || !ALLOWED_STATUSES.has(status)) {
     return res.status(400).json({ success: false, message: 'Invalid status value.' });
   }
 
-  if (getDBStatus().isConnected) {
-    try {
-      const alert = await SecurityAlert.findByIdAndUpdate(req.params.id, { status }, { new: true });
-      return res.json({ success: true, data: alert });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: error.message });
+  try {
+    const alert = await SecurityAlert.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (!alert) {
+      return res.status(404).json({ success: false, message: 'Security alert not found.' });
     }
-  } else {
-    return res.json({ success: true, message: 'Status updated (Demo Mode)' });
+    return res.json({ success: true, data: alert });
+  } catch (error) {
+    console.error('[Security Alert Update Error]', error.message);
+    return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 });
 
 // DELETE /api/security/alerts/clear - Clear alerts (Protected)
 router.delete('/alerts/clear', protect, async (req, res) => {
-  if (getDBStatus().isConnected) {
-    try {
-      const result = await SecurityAlert.deleteMany({});
-      return res.json({ success: true, message: `Cleared ${result.deletedCount} security alerts.` });
-    } catch (error) {
-      return res.status(500).json({ success: false, message: error.message });
-    }
-  } else {
-    return res.json({ success: true, message: 'Security alerts cleared (Demo Mode)' });
+  if (!getDBStatus().isConnected) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database unavailable. Cannot clear security alerts.',
+    });
+  }
+
+  try {
+    const result = await SecurityAlert.deleteMany({});
+    return res.json({ success: true, message: `Cleared ${result.deletedCount} security alerts.` });
+  } catch (error) {
+    console.error('[Security Alerts Clear Error]', error.message);
+    return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 });
 
