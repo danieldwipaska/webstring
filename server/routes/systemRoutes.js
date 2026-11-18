@@ -1,6 +1,11 @@
 import express from 'express';
 import { getDBStatus } from '../config/db.js';
-import { getRecentLogs, getActiveLogSource } from '../services/logWatcher.js';
+import {
+  getRecentLogs,
+  getActiveLogSource,
+  listHistoricalLogFiles,
+  queryHistoricalLogs,
+} from '../services/logWatcher.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -32,6 +37,49 @@ router.get('/logs', protect, (req, res) => {
     activeLogSource: getActiveLogSource(),
     data: getRecentLogs(),
   });
+});
+
+// GET /api/system/logs/files - List allowlisted configured log files & sources (Protected)
+router.get('/logs/files', protect, (req, res) => {
+  res.json({
+    success: true,
+    systemTailerEnabled: (process.env.ENABLE_SYSTEM_LOG_TAILER || 'false').toLowerCase() === 'true',
+    dbConnected: getDBStatus().isConnected,
+    sources: listHistoricalLogFiles(),
+  });
+});
+
+// GET /api/system/logs/history - Read and query historical log files / MongoDB logs (Protected)
+router.get('/logs/history', protect, async (req, res) => {
+  try {
+    const source = typeof req.query.source === 'string' ? req.query.source : 'ALL';
+    const file = typeof req.query.file === 'string' ? req.query.file : 'latest';
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const level = typeof req.query.level === 'string' ? req.query.level : 'ALL';
+    const from = typeof req.query.from === 'string' ? req.query.from : '';
+    const to = typeof req.query.to === 'string' ? req.query.to : '';
+    const limit = typeof req.query.limit === 'string' ? req.query.limit : '200';
+    const order = typeof req.query.order === 'string' ? req.query.order : 'desc';
+
+    const result = await queryHistoricalLogs({
+      source,
+      file,
+      q,
+      level,
+      from,
+      to,
+      limit,
+      order,
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('[Historical Logs Query Error]', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to query historical logs.' });
+  }
 });
 
 // GET /api/system/setup-instructions - Static hardened deployment templates (no runtime path/port leakage)
